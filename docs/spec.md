@@ -662,7 +662,7 @@ go test -tags=integration ./... -run MySQL -v
 5. `config.example.yaml`、`.env.example`；
 6. GitHub `main` 分支。
 
-提交策略：按垂直切片提交。实际提交：
+提交策略：按垂直切片提交。主要提交：
 
 1. `chore: 初始化 Go 工程与 Viper 配置`
 2. `feat(llm): 接入 DeepSeek Chat Completions`
