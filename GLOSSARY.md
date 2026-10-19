@@ -21,8 +21,12 @@ _Avoid_: tab、页面、进程
 _Avoid_: 轮次、对话轮
 
 **Run**：
-Engine 对一次 Turn 的单次执行，拥有独立 `run_id` 和 trace。
+Engine 对一次 Turn 的单次执行，拥有独立 `trace_id`。
 _Avoid_: 请求、job
+
+**Trace ID**：
+一次 Run 的唯一标识，写入该 Run 的每条结构化日志；不是分布式追踪系统的 trace。
+_Avoid_: run_id、request_id
 
 **Step**：
 一个 Run 中的一次 LLM 请求；受 `max_steps` 限制。
@@ -44,6 +48,6 @@ _Avoid_: 记忆、摘要缓存
 属于某个 Session 的结构化待办，只通过 `todo` 工具读写，不进入 system prompt。
 _Avoid_: task、备忘
 
-**Trace**：
-一次 Run 中 LLM 请求、工具调用、压缩和错误的可回放记录，用于调试与测试。
-_Avoid_: log、审计
+**Log Event**：
+`goblin.log` 中的一行 JSON，记录一次 run、LLM 调用、工具调用、压缩或错误。
+_Avoid_: trace、span、审计

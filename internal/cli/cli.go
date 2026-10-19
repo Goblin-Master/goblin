@@ -7,20 +7,18 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 
 	"github.com/Goblin-Master/goblin/internal/agent"
 	"github.com/Goblin-Master/goblin/internal/config"
 	"github.com/Goblin-Master/goblin/internal/db"
 	"github.com/Goblin-Master/goblin/internal/llm"
+	"github.com/Goblin-Master/goblin/internal/logging"
 	"github.com/Goblin-Master/goblin/internal/memory"
 	"github.com/Goblin-Master/goblin/internal/session"
 	"github.com/Goblin-Master/goblin/internal/tools"
-	"github.com/Goblin-Master/goblin/internal/trace"
 	"github.com/spf13/cobra"
 )
 
@@ -131,8 +129,7 @@ type app struct {
 	conn    *sql.DB
 	store   *session.MySQLStore
 	engine  *agent.Engine
-	tracer  *trace.JSONL
-	logFile *os.File
+	logFile *logging.File
 	verbose bool
 }
 
@@ -191,31 +188,24 @@ func newApp(opts appOptions) (*app, error) {
 		cleanup()
 		return nil, err
 	}
-	tracer, err := trace.NewJSONL(cfg.Logging.Dir, "trace.jsonl")
+	logFile, err := logging.New(cfg.Logging.Dir, cfg.Logging.Level)
 	if err != nil {
-		cleanup()
-		return nil, err
-	}
-	logFile, err := openLog(cfg.Logging)
-	if err != nil {
-		_ = tracer.Close()
 		cleanup()
 		return nil, err
 	}
 	engine, err := agent.New(agent.Options{
 		Client: client, Store: store, Tools: registry, Memory: memoryManager,
-		Tracer: tracer, Model: cfg.LLM.Model, MaxSteps: cfg.Agent.MaxSteps,
+		Logger: logFile.Logger, Model: cfg.LLM.Model, MaxSteps: cfg.Agent.MaxSteps,
 		Temperature: cfg.LLM.Temperature,
 	})
 	if err != nil {
 		_ = logFile.Close()
-		_ = tracer.Close()
 		cleanup()
 		return nil, err
 	}
 	return &app{
 		cfg: cfg, conn: conn, store: store, engine: engine,
-		tracer: tracer, logFile: logFile, verbose: opts.verbose,
+		logFile: logFile, verbose: opts.verbose,
 	}, nil
 }
 
@@ -223,31 +213,12 @@ func (a *app) Close() {
 	if a == nil {
 		return
 	}
-	if a.tracer != nil {
-		_ = a.tracer.Close()
-	}
 	if a.logFile != nil {
 		_ = a.logFile.Close()
 	}
 	if a.conn != nil {
 		_ = a.conn.Close()
 	}
-}
-
-func openLog(cfg config.LoggingConfig) (*os.File, error) {
-	if err := os.MkdirAll(cfg.Dir, 0o700); err != nil {
-		return nil, fmt.Errorf("create log directory: %w", err)
-	}
-	f, err := os.OpenFile(filepath.Join(cfg.Dir, "goblin.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
-	if err != nil {
-		return nil, fmt.Errorf("open log file: %w", err)
-	}
-	level := slog.LevelInfo
-	if cfg.Level == "debug" {
-		level = slog.LevelDebug
-	}
-	slog.SetDefault(slog.New(slog.NewJSONHandler(f, &slog.HandlerOptions{Level: level})))
-	return f, nil
 }
 
 func runChat(ctx context.Context, opts *rootOptions, sessionID string, newSession, verbose bool, stdout io.Writer) error {
@@ -332,6 +303,7 @@ func (a *app) repl(ctx context.Context, initialID string, out io.Writer) error {
 		last = reply
 		fmt.Fprintf(out, "\nAgent> %s\n", reply.Text)
 		if a.verbose {
+			fmt.Fprintf(out, "trace_id=%s\n", reply.TraceID)
 			a.printTools(out, reply.ToolCalls)
 		}
 	}
@@ -347,7 +319,7 @@ func (a *app) printTools(out io.Writer, calls []agent.ToolCallRecord) {
 		if call.IsError {
 			status = "error"
 		}
-		fmt.Fprintf(out, "  → %s(%s) %dms %s\n", call.Name, trace.Preview(call.Arguments, 80), call.DurationMS, status)
+		fmt.Fprintf(out, "  → %s(%s) %dms %s\n", call.Name, logging.Preview(call.Arguments, 80), call.DurationMS, status)
 	}
 }
 
@@ -357,7 +329,7 @@ func (a *app) command(ctx context.Context, id, input string, out io.Writer, last
 	case "/quit", "/exit":
 		return true, "", nil
 	case "/help":
-		fmt.Fprintln(out, "/help  /new  /sessions  /switch <uuid>  /history [n]  /compact  /trace  /quit")
+		fmt.Fprintln(out, "/help  /new  /sessions  /switch <uuid>  /history [n]  /compact  /last  /quit")
 	case "/new":
 		newID, err := a.createSession()
 		if err != nil {
@@ -394,7 +366,7 @@ func (a *app) command(ctx context.Context, id, input string, out io.Writer, last
 			start = 0
 		}
 		for _, msg := range sess.Messages[start:] {
-			fmt.Fprintf(out, "[%s] %s\n", msg.Role, trace.Preview(msg.Content, 300))
+			fmt.Fprintf(out, "[%s] %s\n", msg.Role, logging.Preview(msg.Content, 300))
 		}
 	case "/compact":
 		compacted, err := a.engine.Compact(ctx, id)
@@ -406,7 +378,12 @@ func (a *app) command(ctx context.Context, id, input string, out io.Writer, last
 		} else {
 			fmt.Fprintln(out, "当前上下文不需要压缩。")
 		}
-	case "/trace":
+	case "/last":
+		if last.TraceID == "" {
+			fmt.Fprintln(out, "还没有运行记录。")
+			break
+		}
+		fmt.Fprintf(out, "trace_id=%s\n", last.TraceID)
 		a.printTools(out, last.ToolCalls)
 		if len(last.ToolCalls) == 0 {
 			fmt.Fprintln(out, "上次运行没有工具调用。")
@@ -451,6 +428,7 @@ func runOnce(ctx context.Context, opts *rootOptions, sessionID, input string, ve
 	}
 	fmt.Fprintln(stdout, reply.Text)
 	if verbose {
+		fmt.Fprintf(stdout, "trace_id=%s\n", reply.TraceID)
 		a.printTools(stdout, reply.ToolCalls)
 	}
 	return nil

@@ -7,7 +7,7 @@ Goblin 不依赖 LangGraph、OpenHands、OpenClaw、PI 等 Agent 框架。主循
 - 规格：[docs/spec.md](docs/spec.md)
 - 文档索引与维护规则：[docs/README.md](docs/README.md)
 - 术语：[GLOSSARY.md](GLOSSARY.md)
-- 决策：[ADR 0001](docs/adr/0001-mysql-only-persistence.md)、[ADR 0002](docs/adr/0002-native-tool-calls.md)、[ADR 0003](docs/adr/0003-viper-for-config.md)、[ADR 0004](docs/adr/0004-cobra-for-cli.md)
+- 决策：[ADR 0001](docs/adr/0001-mysql-only-persistence.md)、[ADR 0002](docs/adr/0002-native-tool-calls.md)、[ADR 0003](docs/adr/0003-viper-for-config.md)、[ADR 0004](docs/adr/0004-cobra-for-cli.md)、[ADR 0005](docs/adr/0005-single-structured-log.md)
 
 ## 能力
 
@@ -18,7 +18,7 @@ Goblin 不依赖 LangGraph、OpenHands、OpenClaw、PI 等 Agent 框架。主循
 - Session：UUID、严格恢复、MySQL 持久化、两个窗口互相隔离。
 - Memory：最近消息 + 会话摘要 + MySQL 中的待办。
 - 上下文压缩：超预算用 LLM 摘要，失败则截断降级。
-- trace：JSONL 记录 LLM 请求、工具调用、压缩和错误。
+- 结构化日志：JSONL 写入 `goblin.log`，记录 LLM 请求、工具调用、压缩和错误；每条带 `session_id`、`trace_id`。
 - 测试：默认单测不依赖 Docker；MySQL 与真实 DeepSeek 使用 `integration` tag。
 
 ## 架构
@@ -33,7 +33,7 @@ cmd/goblin
        │    ├─ internal/memory       预算 / 摘要
        │    ├─ internal/tools      Registry + 四工具
        │    └─ internal/session    MySQL Store
-       └─ internal/trace    JSONL
+       └─ internal/logging  JSONL
 ```
 
 一次 Run：
@@ -134,7 +134,7 @@ goblin help
 | `/switch <uuid>` | 切换 |
 | `/history [n]` | 最近 n 条消息 |
 | `/compact` | 手动压缩 |
-| `/trace` | 上次运行的工具调用 |
+| `/last` | 上次运行的 trace_id 与工具调用 |
 | `/quit` | 退出 |
 
 ## 配置
@@ -156,7 +156,8 @@ goblin help
 | `agent.keep_recent` | `12` | 压缩后保留的最近消息 |
 | `agent.summary_max_tokens` | `800` | 摘要上限 |
 | `mysql.dsn` | 本地 goblin 库 | MySQL 连接串 |
-| `logging.dir` | `./data/logs` | 日志与 trace |
+| `logging.dir` | `./data/logs` | JSONL 日志目录 |
+| `logging.level` | `info` | `debug` / `info` / `warn` / `error` |
 
 环境变量：`DEEPSEEK_API_KEY`、`GOBLIN_LLM_API_KEY`、`GOBLIN_LLM_BASE_URL`、`GOBLIN_LLM_MODEL`、`GOBLIN_MYSQL_DSN`、`GOBLIN_LOGGING_DIR`。
 
@@ -190,7 +191,7 @@ goblin help
 | 当前用户输入 | messages 末尾 | 当前 Run |
 | 工具结果 | `role=tool` 消息 | 工具执行后立即回填 |
 | 待办 | MySQL `todos` | 模型主动调用 `todo` 时 |
-| reasoning_content | 不进入上下文 | 仅展示/trace |
+| reasoning_content | 不进入上下文 | 仅展示/日志 |
 
 压缩规则：
 
@@ -238,12 +239,22 @@ Schema 在启动时由 [internal/db/schema.sql](internal/db/schema.sql) 幂等�
 - `todos` 外键指向 sessions，删除 Session 时级联；
 - MySQL 连接失败会提示先运行 `scripts/dev.ps1 up`。
 
-## Trace 与日志
+## 日志
 
-- `data/logs/trace.jsonl`：`run.start`、`llm.request`、`llm.response`、`context.compact`、`tool.call`、`tool.result`、`run.end`、`error`
-- `data/logs/goblin.log`：应用日志
-- 参数/结果预览最多 2KB；不记录 Authorization、API key 或完整配置
-- `--verbose` 在 CLI 打印工具调用摘要
+只有一个结构化日志文件：`data/logs/goblin.log`，每行一个 JSON。
+
+```json
+{"ts":"...","level":"INFO","event":"tool.call","session_id":"...","trace_id":"...","step":1,"tool_call_id":"call_1","tool":"calculator","arguments":"..."}
+```
+
+- `session_id`：Session UUID，跨多次输入不变。
+- `trace_id`：一次用户输入对应的 Run ID，用于把终端回答和日志行对上。
+- `step`：本次 Run 内的 LLM 请求序号。
+- `tool_call_id`：工具调用 ID，关联 `tool.call` 与 `tool.result`。
+- 事件：`run.start`、`llm.request`、`llm.response`、`context.compact`、`tool.call`、`tool.result`、`run.end`。
+- 参数/结果预览最多 2KB；不记录 Authorization、API key 或完整配置。
+- `--verbose` 在 CLI 打印 `trace_id` 和工具调用摘要。
+- 交互命令 `/last` 查看上次 Run 的 `trace_id` 与工具调用；不再有单独的 trace 文件。
 
 ## 测试
 
@@ -270,7 +281,7 @@ go test -tags=integration ./... -timeout 240s
 - `.env`、`config.yaml`、`data/` 均在 `.gitignore` 中；
 - 仓库不包含真实密钥；
 - `read_docs` 只读白名单；
-- trace 不记录请求头；
+- 日志不记录请求头；
 - 生产环境请替换 Docker Compose 中的开发账号与密码。
 
 ## 已知限制

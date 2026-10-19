@@ -1,6 +1,6 @@
 # Goblin：最小可用 Agent 规格说明（v3）
 
-- 状态：已实现并验收（v3.3，2026-10-20）
+- 状态：已实现并验收（v3.4，2026-10-20）
 - 目标仓库：<https://github.com/Goblin-Master/goblin>
 - 语言：Go 1.25
 - 模型：DeepSeek `deepseek-chat`（OpenAI 兼容 Chat Completions）
@@ -8,7 +8,7 @@
 - 持久化：MySQL 8.4（唯一存储后端）
 - 会话 ID：UUID v4（`github.com/google/uuid`）
 - 工具：`calculator`、`search`（mock）、`read_docs`、`todo`
-- 配套文档：[GLOSSARY.md](../GLOSSARY.md)、[ADR 0001](adr/0001-mysql-only-persistence.md)、[ADR 0002](adr/0002-native-tool-calls.md)、[ADR 0003](adr/0003-viper-for-config.md)、[ADR 0004](adr/0004-cobra-for-cli.md)
+- 配套文档：[GLOSSARY.md](../GLOSSARY.md)、[ADR 0001](adr/0001-mysql-only-persistence.md)、[ADR 0002](adr/0002-native-tool-calls.md)、[ADR 0003](adr/0003-viper-for-config.md)、[ADR 0004](adr/0004-cobra-for-cli.md)、[ADR 0005](adr/0005-single-structured-log.md)
 
 > 本版取代 v2。v2 中“每会话 JSON 文件”“file/mysql 双驱动”“可读 session id”的决定全部废止。
 
@@ -44,7 +44,7 @@
 4. Session 可创建、恢复、列出；两个窗口互不影响。
 5. 支持纯对话追问、带工具追问、跨重启继续。
 6. 有最大轮次、上下文预算、摘要压缩。
-7. 有异常处理、工具调用 trace、单元/集成测试。
+7. 有异常处理、结构化日志、单元/集成测试。
 8. 用真实 DeepSeek API 完成一次工具闭环。
 9. 代码、README、spec、测试与验收记录可交付并推送到 GitHub。
 
@@ -127,8 +127,8 @@ Agent> keep_recent 默认 12；如果上一轮结果已被压缩，我会重新�
         │           └────────────────┘
         │
 ┌───────▼───────────────────┐  ┌────────────────────────────┐
-│ internal/memory            │  │ internal/trace             │
-│ token 估算 / 摘要 / 裁剪   │  │ JSONL trace + 控制台输出    │
+│ internal/memory            │  │ internal/logging           │
+│ token 估算 / 摘要 / 裁剪   │  │ slog → goblin.log           │
 └───────────────────────────┘  └────────────────────────────┘
 ```
 
@@ -145,7 +145,7 @@ goblin/
 │   ├── tools/             # Tool、Registry、四工具、Todo MySQL Store
 │   ├── session/           # 模型、MySQL Session Store
 │   ├── memory/            # token 估算、Build、MaybeCompact
-│   ├── trace/             # trace 事件、JSONL Recorder
+│   ├── logging/           # slog、JSONL、事件与预览
 │   └── cli/               # Cobra 命令树、REPL、one-shot
 ├── docker-compose.yml     # MySQL 8.4
 ├── scripts/dev.ps1        # Docker Desktop 辅助脚本
@@ -205,7 +205,8 @@ func (m *Manager) MaybeCompact(ctx context.Context, s *Session, system string) (
 - **Session**：一次可持续的对话容器，ID 是 UUID；窗口关闭后仍存在。
 - **Window**：一个 CLI 进程与一个 Session 的绑定。
 - **Turn**：一次用户输入到最终回答的完整过程。
-- **Run**：Engine 的一次执行，对应一个 Turn；有独立 `run_id`。
+- **Run**：Engine 的一次执行，对应一个 Turn；有独立 `trace_id`。
+- **Trace ID**：一次 Run 的唯一标识，写入该 Run 的每条结构化日志；`session_id` 跨输入不变。
 - **Step**：一次 LLM 请求；一个 Run 最多 `max_steps` 个 Step。
 - **Tool Call / Tool Result**：模型请求执行工具，以及执行后回填的结构化结果。
 - **Memory Summary**：较早 messages 的压缩表示，放在 system context 中。
@@ -338,7 +339,7 @@ erDiagram
    e. 有 tool_calls：追加 assistant(tool_calls + 可见意图)
       - 串行执行每个工具
       - 追加 role=tool 消息
-      - 记录 trace
+      - 记录日志
       - 进入下一 step
 4. 收尾请求仍无有效回答：返回“达到最大轮次”，并保存已完成消息
 ```
@@ -482,13 +483,13 @@ goblin sessions                     # 列出 id / title / updated_at / message_c
 | `/switch <uuid>` | 严格切换到已存在 Session |
 | `/history [n]` | 最近 n 条消息（默认 10） |
 | `/compact` | 手动压缩 |
-| `/trace` | 上次 Run 的工具 trace |
+| `/last` | 上次 Run 的 trace_id 与工具调用 |
 | `/quit` / `/exit` | 退出 |
 
 ### 9.2 Session 文件？不，MySQL
 
 - 不写 JSON Session 文件。
-- `data/` 只放日志与 trace：`data/logs/goblin.log`、`data/logs/trace.jsonl`。
+- `data/` 只放日志：`data/logs/goblin.log`。
 - Session 的完整历史只在 MySQL；日志不记录 API key 或完整消息正文。
 
 ---
@@ -532,8 +533,8 @@ goblin sessions                     # 列出 id / title / updated_at / message_c
 - 压缩：旧 summary + `messages[summary_up_to:cutoff]` 交给 LLM，生成新 summary；`summary_up_to = cutoff`。
 - 切点必须对齐到 user message，不能拆散 assistant(tool_calls) 与对应 tool 结果。
 - 摘要失败：保留旧 summary，注入“更早内容已省略”，不中断。
-- 单条工具结果超过 16KB 时截断后发送；MySQL 中保留完整内容，trace 只留 2KB 预览。
-- `reasoning_content` 不回传模型；只用于展示/trace。
+- 单条工具结果超过 16KB 时截断后发送；MySQL 中保留完整内容，日志只留 2KB 预览。
+- `reasoning_content` 不回传模型；只用于展示/日志。
 
 ### 10.4 追问
 
@@ -654,15 +655,16 @@ go run ./cmd/goblin chat
 
 ---
 
-## 14. Trace 与日志
+## 14. 结构化日志
 
-- `log/slog`；控制台只输出可读信息。
-- 文件：`<logging.dir>/goblin.log`。
-- trace：`<logging.dir>/trace.jsonl`，每行一个 JSON。
-- 事件：`run.start`、`llm.request`、`llm.response`、`context.compact`、`tool.call`、`tool.result`、`run.end`、`error`。
-- 每条含 `ts`、`run_id`、`session_id`、`step`、`event`。
+- 使用 `log/slog`，只写一个文件：`<logging.dir>/goblin.log`。
+- 每行一个 JSON 对象；不另写 `trace.jsonl`。
+- 公共字段：`ts`、`level`、`event`、`session_id`、`trace_id`。
+- 按事件追加：`step`、`tool_call_id`、`tool`、`duration_ms`、`ok`、`request_id`、`tokens_before` 等。
+- `trace_id` 是一次用户输入对应的 Run ID；`session_id` 跨输入不变。
+- 事件：`run.start`、`llm.request`、`llm.response`、`context.compact`、`tool.call`、`tool.result`、`run.end`。
 - 参数/结果预览最多 2KB；禁止记录 Authorization、API key、完整配置。
-- `--verbose` 控制台打印 `→ tool(args) 12ms ok`。
+- 默认控制台安静；`--verbose` 打印 `trace_id` 和 `→ tool(args) 12ms ok`；`/last` 查看上次 Run。
 
 ---
 
@@ -707,7 +709,7 @@ go test -tags=integration ./... -run MySQL -v
 1. `scripts/dev.ps1 up`；
 2. 新建两个 Session，分别记录待办；
 3. 重启 CLI，严格恢复两个 UUID；
-4. 追问、触发压缩、查看 trace；
+4. 追问、触发压缩、查看 `goblin.log`；
 5. 停止 MySQL，确认启动错误可读；
 6. 错误 API key，确认 401 提示；
 7. `git grep -i "sk-"` 与 `git status` 确认无密钥。
@@ -753,7 +755,8 @@ go test -tags=integration ./... -run MySQL -v
 16. `docs: 整理文档索引与维护规则`
 17. `refactor(memory): 重命名上下文管理器`
 18. `docs: 添加 Mermaid 流程图与 ER 图`
-19. `docs: 补充 Viper 与 Cobra ADR`（本次）
+19. `docs: 补充 Viper 与 Cobra ADR`
+20. `refactor(logging): 合并日志与 trace`（本次）
 
 ---
 
@@ -767,7 +770,7 @@ go test -tags=integration ./... -run MySQL -v
 - [x] 主循环包含工具回填、错误回喂、max_steps。
 - [x] 追问与跨重启继续可用。
 - [x] 超预算触发摘要；失败降级。
-- [x] trace 记录每次工具调用。
+- [x] 结构化日志记录每次工具调用。
 - [x] `go test ./...`、`-race`、`vet` 通过。
 - [x] MySQL 集成测试通过。
 - [x] 真实 DeepSeek 工具闭环通过。

@@ -22,7 +22,7 @@ type Call struct {
 	ID        string
 	Name      string
 	SessionID string
-	RunID     string
+	TraceID   string
 	Arguments json.RawMessage
 }
 

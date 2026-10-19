@@ -14,6 +14,7 @@
 | [adr/0002-native-tool-calls.md](adr/0002-native-tool-calls.md) | 为什么使用原生 `tool_calls` | 架构评审 |
 | [adr/0003-viper-for-config.md](adr/0003-viper-for-config.md) | 为什么用 Viper 合并配置 | 配置维护者 |
 | [adr/0004-cobra-for-cli.md](adr/0004-cobra-for-cli.md) | 为什么用 Cobra 组织 CLI | CLI 维护者 |
+| [adr/0005-single-structured-log.md](adr/0005-single-structured-log.md) | 为什么只保留一份结构化日志 | 排障/维护者 |
 
 `docs/skills.md` 已删除：它描述的是 DSH 用户级技能目录，不是 Goblin 的项目知识，容易随环境变化而过期。
 
@@ -35,6 +36,7 @@
 | 外部技术选型（DB、CLI、配置、协议） | 新增 ADR，记录替代方案与代价 |
 | 测试结果、覆盖率、已知缺口 | `testing.md`，写日期与环境 |
 | 主循环、Memory 压缩、MySQL 关系图 | 同步更新 README 与 spec 中的 Mermaid 图 |
+| 日志字段、trace_id、控制台输出 | 更新 README、spec、testing 和 ADR 0005 |
 | 删除或移动文档 | 同步所有相对链接和 `docs/README.md` 地图 |
 
 ### 文档层级
@@ -57,5 +59,5 @@ go test ./...
 ## 最近核对
 
 - 日期：2026-10-20
-- 对应提交：Viper/Cobra ADR 与 Mermaid 图之后
+- 对应提交：单一结构化日志、Memory 重命名与 Mermaid 图之后
 - 结论：README、spec、testing、ADR、术语表与当前代码一致

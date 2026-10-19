@@ -13,6 +13,7 @@
 | `session.Store` | Session 生命周期、消息隔离 | fake / MySQL integration |
 | `tools.Tool` + `Registry` | Schema、参数校验、panic、超时 | fake tool |
 | `memory` + `ChatClient` | 预算、切点、摘要失败降级 | fake summarizer |
+| `logging` | JSONL 字段、`trace_id`、预览 | 临时文件 |
 | DeepSeek HTTP | 请求格式、tool_calls、重试、错误 | `httptest.Server` |
 | 真实 DeepSeek | 计算、追问、read_docs | 真实 API |
 | MySQL | 事务、JSON 列、级联、UUID | 真实容器 |
@@ -46,7 +47,7 @@ go vet ./...
 - parser：纯回答、tool_calls、reasoning、空响应；
 - config：默认值、环境变量、`.env` 优先级、非法值；
 - CLI：Cobra 帮助、无参数帮助、未知命令、冲突 flag；
-- trace：JSONL 行数、事件字段、预览。
+- logging：JSONL 行数、`ts` / `level` / `event` / `session_id` / `trace_id` 字段、预览。
 
 ## 3. MySQL 集成测试
 
@@ -180,17 +181,17 @@ $env:GOBLIN_AGENT_COMPACT_RATIO='0.5'
 go run ./cmd/goblin run --session <uuid> "用一句话总结我们之前聊过的内容。"
 ```
 
-trace 实际出现：
+`goblin.log` 实际出现：
 
 ```json
-{"event":"context.compact","tokens_before":19809,"tokens_after":308,"summary_up_to":17}
+{"ts":"...","level":"INFO","event":"context.compact","session_id":"...","trace_id":"...","tokens_before":19809,"tokens_after":308,"summary_up_to":17}
 ```
 
 再次追问“我刚才提到的三件事分别是什么？”，回答仍能复述 calculator、read_docs、todo 三件事，说明 summary 已被召回。
 
-## 6. Trace 验收
+## 6. 日志验收
 
-`data/logs/trace.jsonl` 实际包含：
+`data/logs/goblin.log` 是唯一结构化日志文件，实际包含：
 
 - `run.start`
 - `llm.request` / `llm.response`（usage、request_id、duration）
@@ -200,12 +201,21 @@ trace 实际出现：
 示例：
 
 ```json
-{"event":"llm.request","messages":4,"run_id":"...","session_id":"...","step":2,"tools":4}
-{"event":"tool.result","duration_ms":139,"event":"tool.result","ok":true,"tool":"todo"}
-{"event":"run.end","ok":true,"steps":2,"tool_calls":1}
+{"ts":"...","level":"INFO","event":"llm.request","session_id":"...","trace_id":"...","step":2,"messages":4,"tools":4}
+{"ts":"...","level":"INFO","event":"tool.result","session_id":"...","trace_id":"...","step":2,"tool_call_id":"call_1","duration_ms":139,"ok":true,"tool":"todo"}
+{"ts":"...","level":"INFO","event":"run.end","session_id":"...","trace_id":"...","ok":true,"steps":2,"tool_calls":1}
 ```
 
-`data/logs/goblin.log` 存在；trace 不记录请求头与 key。
+`data/logs/trace.jsonl` 已移除；日志不记录请求头与 key。
+
+### 6.1 `/last` 命令
+
+```powershell
+@('用 calculator 计算 6*7，只回答数字。','/last','/quit') |
+  go run ./cmd/goblin chat --verbose
+```
+
+实际输出包含同一 `trace_id` 和计算器调用，说明 `/last` 读取的是上次 Run 的 `Reply`，不是日志文件。
 
 ## 7. 数据库验收
 

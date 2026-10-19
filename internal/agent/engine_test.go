@@ -1,9 +1,11 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"os"
 	"strings"
 	"testing"
@@ -13,7 +15,6 @@ import (
 	"github.com/Goblin-Master/goblin/internal/memory"
 	"github.com/Goblin-Master/goblin/internal/session"
 	"github.com/Goblin-Master/goblin/internal/tools"
-	"github.com/Goblin-Master/goblin/internal/trace"
 )
 
 type fakeStore struct {
@@ -102,7 +103,7 @@ func (e *echoTool) Execute(_ context.Context, call tools.Call) (tools.Result, er
 	return tools.Result{Content: tools.JSONResult(map[string]any{"ok": true, "tool": e.name, "args": string(call.Arguments)})}, nil
 }
 
-func newTestEngine(t *testing.T, responses []llm.ChatResponse, registryTools ...tools.Tool) (*Engine, *fakeStore, *fakeLLM, *trace.Memory, string) {
+func newTestEngine(t *testing.T, responses []llm.ChatResponse, registryTools ...tools.Tool) (*Engine, *fakeStore, *fakeLLM, *bytes.Buffer, string) {
 	t.Helper()
 	client := &fakeLLM{responses: responses}
 	store := newFakeStore()
@@ -122,15 +123,16 @@ func newTestEngine(t *testing.T, responses []llm.ChatResponse, registryTools ...
 	if err != nil {
 		t.Fatal(err)
 	}
-	mem := &trace.Memory{}
+	var logBuf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logBuf, nil))
 	engine, err := New(Options{
 		Client: client, Store: store, Tools: registry, Memory: memoryManager,
-		Tracer: mem, Model: "deepseek-chat", MaxSteps: 8, Temperature: 0.2,
+		Logger: logger, Model: "deepseek-chat", MaxSteps: 8, Temperature: 0.2,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return engine, store, client, mem, sid
+	return engine, store, client, &logBuf, sid
 }
 
 func toolResponse(content, name, args string) llm.ChatResponse {
@@ -163,8 +165,12 @@ func TestRunDirectAnswer(t *testing.T) {
 	if len(client.reqs[0].Tools) == 0 {
 		t.Fatal("tools should be sent on non-final steps")
 	}
-	if len(mem.Events) == 0 {
-		t.Fatal("expected trace events")
+	if mem.Len() == 0 {
+		t.Fatal("expected log events")
+	}
+	logText := mem.String()
+	if !strings.Contains(logText, `"session_id"`) || !strings.Contains(logText, `"trace_id"`) || !strings.Contains(logText, `"run.start"`) {
+		t.Fatalf("log = %s", logText)
 	}
 }
 

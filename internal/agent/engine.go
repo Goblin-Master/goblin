@@ -5,16 +5,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/Goblin-Master/goblin/internal/llm"
+	"github.com/Goblin-Master/goblin/internal/logging"
 	"github.com/Goblin-Master/goblin/internal/memory"
 	"github.com/Goblin-Master/goblin/internal/session"
 	"github.com/Goblin-Master/goblin/internal/tools"
-	"github.com/Goblin-Master/goblin/internal/trace"
 	"github.com/google/uuid"
 )
 
@@ -23,7 +24,7 @@ type Options struct {
 	Store       session.Store
 	Tools       *tools.Registry
 	Memory      *memory.Manager
-	Tracer      trace.Tracer
+	Logger      *slog.Logger
 	Model       string
 	MaxSteps    int
 	Temperature float64
@@ -34,7 +35,7 @@ type Engine struct {
 	store       session.Store
 	tools       *tools.Registry
 	memory      *memory.Manager
-	tracer      trace.Tracer
+	logger      *slog.Logger
 	model       string
 	maxSteps    int
 	temperature float64
@@ -43,7 +44,7 @@ type Engine struct {
 
 type Reply struct {
 	SessionID string
-	RunID     string
+	TraceID   string
 	Text      string
 	Steps     int
 	ToolCalls []ToolCallRecord
@@ -78,15 +79,15 @@ func New(opts Options) (*Engine, error) {
 	if opts.MaxSteps < 1 {
 		return nil, errors.New("max_steps 必须至少为 1")
 	}
-	if opts.Tracer == nil {
-		opts.Tracer = trace.Nop{}
+	if opts.Logger == nil {
+		opts.Logger = logging.Discard()
 	}
 	return &Engine{
 		client:      opts.Client,
 		store:       opts.Store,
 		tools:       opts.Tools,
 		memory:      opts.Memory,
-		tracer:      opts.Tracer,
+		logger:      opts.Logger,
 		model:       opts.Model,
 		maxSteps:    opts.MaxSteps,
 		temperature: opts.Temperature,
@@ -123,31 +124,23 @@ func (e *Engine) Run(ctx context.Context, sessionID, input string) (Reply, error
 		CreatedAt: now,
 	})
 
-	runID := uuid.NewString()
-	reply := Reply{SessionID: id, RunID: runID}
-	e.tracer.Emit("run.start", map[string]any{
-		"run_id": runID, "session_id": id, "input": trace.Preview(input, 200),
-	})
+	traceID := uuid.NewString()
+	reply := Reply{SessionID: id, TraceID: traceID}
+	log := e.logger.With("session_id", id, "trace_id", traceID)
+	log.Info("run.start", "input", logging.Preview(input, 200))
 	finish := func(r Reply, runErr error) (Reply, error) {
 		if runErr != nil {
 			if saveErr := e.store.Save(sess); saveErr != nil {
 				runErr = fmt.Errorf("%w（保存会话也失败: %v）", runErr, saveErr)
 			}
-			e.tracer.Emit("run.end", map[string]any{
-				"run_id": runID, "session_id": id, "ok": false, "error": runErr.Error(),
-			})
+			log.Error("run.end", "ok", false, "error", runErr.Error())
 			return Reply{}, runErr
 		}
 		if err := e.store.Save(sess); err != nil {
-			e.tracer.Emit("run.end", map[string]any{
-				"run_id": runID, "session_id": id, "ok": false, "error": err.Error(),
-			})
+			log.Error("run.end", "ok", false, "error", err.Error())
 			return Reply{}, fmt.Errorf("保存会话失败: %w", err)
 		}
-		e.tracer.Emit("run.end", map[string]any{
-			"run_id": runID, "session_id": id, "ok": true,
-			"steps": r.Steps, "tool_calls": len(r.ToolCalls),
-		})
+		log.Info("run.end", "ok", true, "steps", r.Steps, "tool_calls", len(r.ToolCalls))
 		return r, nil
 	}
 
@@ -161,10 +154,9 @@ func (e *Engine) Run(ctx context.Context, sessionID, input string) (Reply, error
 		}
 		if compacted {
 			after := memory.EstimateTokens(e.memory.Build(sess, system))
-			e.tracer.Emit("context.compact", map[string]any{
-				"run_id": runID, "session_id": id, "step": step,
-				"tokens_before": before, "tokens_after": after, "summary_up_to": sess.SummaryUpTo,
-			})
+			log.Info("context.compact",
+				"step", step, "tokens_before", before, "tokens_after", after,
+				"summary_up_to", sess.SummaryUpTo)
 		}
 
 		req := llm.ChatRequest{
@@ -175,22 +167,20 @@ func (e *Engine) Run(ctx context.Context, sessionID, input string) (Reply, error
 		if step < e.maxSteps {
 			req.Tools = e.tools.Definitions()
 		}
-		e.tracer.Emit("llm.request", map[string]any{
-			"run_id": runID, "session_id": id, "step": step,
-			"messages": len(req.Messages), "tools": len(req.Tools),
-		})
+		log.Info("llm.request", "step", step, "messages", len(req.Messages), "tools", len(req.Tools))
 		started := time.Now()
 		resp, err := e.client.Chat(ctx, req)
 		if err != nil {
 			return finish(reply, fmt.Errorf("LLM 调用失败: %w", err))
 		}
-		e.tracer.Emit("llm.response", map[string]any{
-			"run_id": runID, "session_id": id, "step": step,
-			"duration_ms":   time.Since(started).Milliseconds(),
-			"finish_reason": resp.FinishReason, "request_id": resp.RequestID,
-			"prompt_tokens": resp.Usage.PromptTokens, "completion_tokens": resp.Usage.CompletionTokens,
-			"content": trace.Preview(resp.Content, 200),
-		})
+		log.Info("llm.response",
+			"step", step,
+			"duration_ms", time.Since(started).Milliseconds(),
+			"finish_reason", resp.FinishReason,
+			"request_id", resp.RequestID,
+			"prompt_tokens", resp.Usage.PromptTokens,
+			"completion_tokens", resp.Usage.CompletionTokens,
+			"content", logging.Preview(resp.Content, 200))
 		reply.Usage = resp.Usage
 		reply.Steps = step
 
@@ -225,25 +215,21 @@ func (e *Engine) Run(ctx context.Context, sessionID, input string) (Reply, error
 		})
 		for _, call := range decision.ToolCalls {
 			started := time.Now()
-			e.tracer.Emit("tool.call", map[string]any{
-				"run_id": runID, "session_id": id, "step": step,
-				"call_id": call.ID, "tool": call.Function.Name,
-				"arguments": trace.Preview(call.Function.Arguments, 500),
-			})
+			log.Info("tool.call",
+				"step", step, "tool_call_id", call.ID, "tool", call.Function.Name,
+				"arguments", logging.Preview(call.Function.Arguments, 500))
 			result := e.tools.Execute(ctx, tools.Call{
 				ID:        call.ID,
 				Name:      call.Function.Name,
 				SessionID: id,
-				RunID:     runID,
+				TraceID:   traceID,
 				Arguments: json.RawMessage(call.Function.Arguments),
 			})
 			duration := time.Since(started).Milliseconds()
-			e.tracer.Emit("tool.result", map[string]any{
-				"run_id": runID, "session_id": id, "step": step,
-				"call_id": call.ID, "tool": call.Function.Name,
-				"duration_ms": duration, "ok": !result.IsError,
-				"result": trace.Preview(result.Content, 500),
-			})
+			log.Info("tool.result",
+				"step", step, "tool_call_id", call.ID, "tool", call.Function.Name,
+				"duration_ms", duration, "ok", !result.IsError,
+				"result", logging.Preview(result.Content, 500))
 			sess.Messages = append(sess.Messages, session.Message{
 				Role:       llm.RoleTool,
 				Content:    result.Content,

@@ -14,7 +14,6 @@ import (
 	"github.com/Goblin-Master/goblin/internal/memory"
 	"github.com/Goblin-Master/goblin/internal/session"
 	"github.com/Goblin-Master/goblin/internal/tools"
-	"github.com/Goblin-Master/goblin/internal/trace"
 )
 
 func TestRealDeepSeekToolLoop(t *testing.T) {
@@ -57,7 +56,7 @@ func TestRealDeepSeekToolLoop(t *testing.T) {
 	}
 	engine, err := New(Options{
 		Client: client, Store: store, Tools: registry, Memory: memoryManager,
-		Tracer: trace.Nop{}, Model: cfg.LLM.Model, MaxSteps: 8, Temperature: 0.2,
+		Model: cfg.LLM.Model, MaxSteps: 8, Temperature: 0.2,
 	})
 	if err != nil {
 		t.Fatal(err)
