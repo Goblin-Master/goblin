@@ -9,7 +9,6 @@
 | [../README.md](../README.md) | 项目定位、快速开始、命令、配置、Memory 摘要 | 第一次运行项目的人 |
 | [spec.md](spec.md) | 行为规格、数据模型、模块边界、验收清单 | 维护者、评审者 |
 | [testing.md](testing.md) | 测试矩阵、真实 API/MySQL 验收记录、已知缺口 | 维护者 |
-| [ai-prompts.md](ai-prompts.md) | AI 协作 Prompt 与问题解决记录 | 维护者、复盘者 |
 | [../GLOSSARY.md](../GLOSSARY.md) | 领域术语：Session / Turn / Run / Summary Cursor 等 | 所有人 |
 | [adr/0001-mysql-only-persistence.md](adr/0001-mysql-only-persistence.md) | 为什么 MySQL 是唯一存储 | 架构评审 |
 | [adr/0002-native-tool-calls.md](adr/0002-native-tool-calls.md) | 为什么使用原生 `tool_calls` | 架构评审 |
@@ -36,7 +35,6 @@
 | 外部技术选型（DB、CLI、配置、协议） | 新增 ADR，记录替代方案与代价 |
 | 测试结果、覆盖率、已知缺口 | `testing.md`，写日期与环境 |
 | 主循环、Memory 压缩、MySQL 关系图 | 同步更新 README 与 spec 中的 Mermaid 图 |
-| 明显的 AI 协作决策/踩坑 | `ai-prompts.md` |
 | 删除或移动文档 | 同步所有相对链接和 `docs/README.md` 地图 |
 
 ### 文档层级
@@ -44,7 +42,6 @@
 - `spec.md`：**行为契约**。实现与它有冲突时，先改 spec 或明确记 ADR。
 - `README.md`：**可运行入口**。不追求覆盖所有边界，但命令必须能直接复制执行。
 - `testing.md`：**证据**。只写实际跑过的命令、结果和日期。
-- `ai-prompts.md`：**过程记录**。允许保留历史方案，但要标明最终结论。
 - `GLOSSARY.md`：**语言**。只放领域概念，不写实现细节。
 - `adr/`：**决策**。只记录难以回退、且有真实取舍的决定。
 

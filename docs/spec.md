@@ -46,7 +46,7 @@
 6. 有最大轮次、上下文预算、摘要压缩。
 7. 有异常处理、工具调用 trace、单元/集成测试。
 8. 用真实 DeepSeek API 完成一次工具闭环。
-9. 代码、README、spec、测试、AI 问题记录可交付并推送到 GitHub。
+9. 代码、README、spec、测试与验收记录可交付并推送到 GitHub。
 
 ### 2.2 非目标
 
@@ -156,7 +156,6 @@ goblin/
 │   ├── README.md              # 文档索引与维护规则
 │   ├── spec.md
 │   ├── testing.md
-│   ├── ai-prompts.md
 │   └── adr/
 └── README.md
 ```
@@ -730,7 +729,7 @@ go test -tags=integration ./... -run MySQL -v
 1. Go 源码；
 2. `README.md`：运行、Docker、配置、架构、Memory、测试；
 3. `docs/spec.md`（本文件）、`GLOSSARY.md`、ADR；
-4. `docs/testing.md`、`docs/ai-prompts.md`；
+4. `docs/testing.md`；
 5. `config.example.yaml`、`.env.example`；
 6. GitHub `main` 分支。
 
@@ -748,7 +747,7 @@ go test -tags=integration ./... -run MySQL -v
 10. `feat(trace): 添加 JSONL 执行追踪`
 11. `feat(agent): 实现主循环与决策解析`
 12. `feat(cli): 添加交互式 CLI 与日志`
-13. `docs: 补 README、测试记录与 AI 问题记录`
+13. `docs: 补 README 与测试记录`
 14. `refactor(cli): 使用 Cobra 组织命令`
 15. `chore(db): 统一 MySQL 开发密码`
 16. `docs: 整理文档索引与维护规则`

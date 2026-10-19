@@ -44,6 +44,7 @@ $staleTerms = @(
     "JSONStore",
     "storage.driver",
     "contextmgr",
+    "ai-prompts",
     "weather(mock)"
 )
 foreach ($file in $staleFiles) {

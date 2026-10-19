@@ -263,7 +263,7 @@ $env:GOBLIN_TEST_MYSQL_DSN = "goblin:123456@tcp(127.0.0.1:3306)/goblin?parseTime
 go test -tags=integration ./... -timeout 240s
 ```
 
-真实 API 测试会从 `.env` 读取 `DEEPSEEK_API_KEY`，缺少 key 时自动 skip。测试矩阵与最近一次验收记录见 [docs/testing.md](docs/testing.md)；AI 协作与问题解决记录见 [docs/ai-prompts.md](docs/ai-prompts.md)。
+真实 API 测试会从 `.env` 读取 `DEEPSEEK_API_KEY`，缺少 key 时自动 skip。测试矩阵与最近一次验收记录见 [docs/testing.md](docs/testing.md)。
 
 ## 安全
 
