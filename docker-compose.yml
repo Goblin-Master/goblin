@@ -6,8 +6,9 @@ services:
     environment:
       MYSQL_DATABASE: goblin
       MYSQL_USER: goblin
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-goblin_dev}
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_dev}
+      # 本地开发统一密码；生产环境请改用独立凭据。
+      MYSQL_PASSWORD: "123456"
+      MYSQL_ROOT_PASSWORD: "123456"
     ports:
       - "3306:3306"
     command:
@@ -16,7 +17,7 @@ services:
     volumes:
       - goblin_mysql_data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-root_dev}"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p123456"]
       interval: 5s
       timeout: 5s
       retries: 20

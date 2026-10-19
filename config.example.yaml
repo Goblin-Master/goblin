@@ -16,7 +16,7 @@ agent:
   summary_max_tokens: 800
 
 mysql:
-  dsn: "goblin:goblin_dev@tcp(127.0.0.1:3306)/goblin?parseTime=true&charset=utf8mb4&loc=Local"
+  dsn: "goblin:123456@tcp(127.0.0.1:3306)/goblin?parseTime=true&charset=utf8mb4&loc=Local"
 
 logging:
   level: "info"

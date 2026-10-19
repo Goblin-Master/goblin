@@ -86,7 +86,7 @@ func Load(opts LoadOptions) (Config, error) {
 	v.SetDefault("agent.compact_ratio", 0.75)
 	v.SetDefault("agent.keep_recent", 12)
 	v.SetDefault("agent.summary_max_tokens", 800)
-	v.SetDefault("mysql.dsn", "goblin:goblin_dev@tcp(127.0.0.1:3306)/goblin?parseTime=true&charset=utf8mb4&loc=Local")
+	v.SetDefault("mysql.dsn", "goblin:123456@tcp(127.0.0.1:3306)/goblin?parseTime=true&charset=utf8mb4&loc=Local")
 	v.SetDefault("logging.level", "info")
 	v.SetDefault("logging.dir", "./data/logs")
 	v.SetDefault("logging.verbose", false)

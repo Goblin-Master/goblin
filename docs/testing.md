@@ -52,7 +52,7 @@ go vet ./...
 
 ```powershell
 .\scripts\dev.ps1 up
-$env:GOBLIN_TEST_MYSQL_DSN = "goblin:goblin_dev@tcp(127.0.0.1:3306)/goblin?parseTime=true&charset=utf8mb4&loc=Local"
+$env:GOBLIN_TEST_MYSQL_DSN = "goblin:123456@tcp(127.0.0.1:3306)/goblin?parseTime=true&charset=utf8mb4&loc=Local"
 go test -tags=integration ./internal/session ./internal/tools -v -timeout 60s
 ```
 

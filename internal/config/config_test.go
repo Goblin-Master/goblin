@@ -88,7 +88,7 @@ llm:
 agent:
   max_steps: 3
 mysql:
-  dsn: "goblin:goblin_dev@tcp(127.0.0.1:3306)/goblin?parseTime=true"
+  dsn: "goblin:123456@tcp(127.0.0.1:3306)/goblin?parseTime=true"
 logging:
   dir: `+filepath.ToSlash(filepath.Join(dir, "logs"))+`
 `), 0o600); err != nil {
@@ -221,7 +221,7 @@ func defaultConfigForTest() Config {
 			SummaryMaxTokens:   800,
 		},
 		MySQL: MySQLConfig{
-			DSN: "goblin:goblin_dev@tcp(127.0.0.1:3306)/goblin?parseTime=true",
+			DSN: "goblin:123456@tcp(127.0.0.1:3306)/goblin?parseTime=true",
 		},
 		Logging: LoggingConfig{
 			Level: "info",

@@ -221,7 +221,7 @@ func (m *Manager) MaybeCompact(ctx context.Context, s *Session, system string) (
 - 容器名：`goblin-mysql`
 - 端口：`127.0.0.1:3306`
 - 数据库：`goblin`
-- 开发账号：`goblin / goblin_dev`（仅本地；可用环境变量覆盖）
+- 开发账号：`goblin / 123456`（root 也是同一密码；仅本地）
 - 数据卷：`goblin_mysql_data`
 - 字符集：`utf8mb4`，排序规则 `utf8mb4_unicode_ci`
 - DSN 必须带 `parseTime=true`；应用会补 `charset=utf8mb4` 和 `loc=Local`
@@ -504,7 +504,7 @@ agent:
   summary_max_tokens: 800
 
 mysql:
-  dsn: "goblin:goblin_dev@tcp(127.0.0.1:3306)/goblin?parseTime=true&charset=utf8mb4&loc=Local"
+  dsn: "goblin:123456@tcp(127.0.0.1:3306)/goblin?parseTime=true&charset=utf8mb4&loc=Local"
 
 logging:
   level: "info"
@@ -538,7 +538,7 @@ API key 解析：`GOBLIN_LLM_API_KEY` > `DEEPSEEK_API_KEY` > 配置文件；优�
 
 `docker-compose.yml`：
 
-- MySQL 8.4，数据库 `goblin`，开发账号 `goblin/goblin_dev`；
+- MySQL 8.4，数据库 `goblin`，开发账号 `goblin/123456`（root 同密码）；
 - 端口 `3306:3306`，命名卷持久化；
 - healthcheck 使用 `mysqladmin ping`。
 
@@ -607,7 +607,7 @@ go run ./cmd/goblin chat
 
 ```powershell
 .\scripts\dev.ps1 up
-$env:GOBLIN_TEST_MYSQL_DSN = "goblin:goblin_dev@tcp(127.0.0.1:3306)/goblin?parseTime=true&charset=utf8mb4&loc=Local"
+$env:GOBLIN_TEST_MYSQL_DSN = "goblin:123456@tcp(127.0.0.1:3306)/goblin?parseTime=true&charset=utf8mb4&loc=Local"
 go test -tags=integration ./... -run MySQL -v
 ```
 
@@ -700,7 +700,7 @@ go test -tags=integration ./... -run MySQL -v
 ## 18. 工程默认值（不再作为开放问题）
 
 1. **messages 写入**：MVP 使用事务内整段替换；数据量小时优先保证一致性，append-only 留作后续优化。
-2. **MySQL 开发账号**：默认 `goblin/goblin_dev`，通过 `MYSQL_PASSWORD` / DSN 覆盖；不把生产凭据写进仓库。
+2. **MySQL 开发账号**：默认 `goblin/123456`，root 同密码；仅本地开发使用，不把生产凭据写进仓库。
 3. **删除 Session**：本版不提供 CLI 删除命令；需要时直接执行 SQL，外键会级联清理。
 4. **Docker PATH**：不要求用户改 PATH；`scripts/dev.ps1` 自动定位 Docker Desktop 的 `docker.exe`。
 
