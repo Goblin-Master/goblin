@@ -1,6 +1,6 @@
 # Goblin：最小可用 Agent 规格说明（v3）
 
-- 状态：待确认（Draft v3，基于 2026-10-20 访谈）
+- 状态：已实现并验收（v3.1，2026-10-20）
 - 目标仓库：<https://github.com/Goblin-Master/goblin>
 - 语言：Go 1.25
 - 模型：DeepSeek `deepseek-chat`（OpenAI 兼容 Chat Completions）
@@ -692,7 +692,7 @@ go test -tags=integration ./... -run MySQL -v
 - [x] MySQL 集成测试通过。
 - [x] 真实 DeepSeek 工具闭环通过。
 - [x] README 说明 Memory 召回与放置。
-- [ ] 无密钥，GitHub 已推送。
+- [x] 无密钥，GitHub 已推送。
 
 ---
 
