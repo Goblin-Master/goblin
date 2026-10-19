@@ -190,8 +190,8 @@ type Tool interface {
 }
 
 // 上下文接缝。
-func (m *Manager) Build(ctx context.Context, s *Session, now time.Time) ([]llm.Message, error)
-func (m *Manager) MaybeCompact(ctx context.Context, s *Session) (bool, error)
+func (m *Manager) Build(s *Session, system string) []llm.Message
+func (m *Manager) MaybeCompact(ctx context.Context, s *Session, system string) (bool, error)
 ```
 
 `Store` 的 MySQL 实现隐藏连接、事务、JSON 列和 schema；Agent 不直接执行 SQL。
@@ -458,7 +458,7 @@ goblin sessions                     # 列出 id / title / updated_at / message_c
 - 压缩：旧 summary + `messages[summary_up_to:cutoff]` 交给 LLM，生成新 summary；`summary_up_to = cutoff`。
 - 切点必须对齐到 user message，不能拆散 assistant(tool_calls) 与对应 tool 结果。
 - 摘要失败：保留旧 summary，注入“更早内容已省略”，不中断。
-- 单条工具结果超过 4KB 时截断后发送；MySQL 中保留完整内容，trace 只留 2KB 预览。
+- 单条工具结果超过 16KB 时截断后发送；MySQL 中保留完整内容，trace 只留 2KB 预览。
 - `reasoning_content` 不回传模型；只用于展示/trace。
 
 ### 10.4 追问
@@ -659,40 +659,39 @@ go test -tags=integration ./... -run MySQL -v
 5. `config.example.yaml`、`.env.example`；
 6. GitHub `main` 分支。
 
-提交策略：按垂直切片提交。已提交：
+提交策略：按垂直切片提交。实际提交：
 
 1. `chore: 初始化 Go 工程与 Viper 配置`
 2. `feat(llm): 接入 DeepSeek Chat Completions`
 3. `feat(tools): 实现工具注册表与四个工具`
 4. `feat(session): 添加会话持久化与 UUID`
-
-v3 之后计划：
-
-5. `docs: 重写 MySQL 版 Agent 规格`（本文件 + GLOSSARY + ADR）
-6. `refactor(session): 改为 MySQL 唯一存储`
-7. `feat(todo): 待办迁移到 MySQL`
-8. `feat(agent): 实现主循环与上下文压缩`
-9. `feat(cli): 添加交互式 CLI 与 trace`
-10. `test: 补充 MySQL 与真实 API 集成测试`
-11. `docs: 补 README、测试记录与 AI 问题记录`
+5. `docs: 重写 MySQL 版 Agent 规格`
+6. `feat(db): 添加 MySQL schema 与 Docker 启动脚本`
+7. `refactor(session): 改为 MySQL 唯一存储`
+8. `refactor(todo): 待办迁移到 MySQL`
+9. `feat(context): 添加上下文预算与摘要压缩`
+10. `feat(trace): 添加 JSONL 执行追踪`
+11. `feat(agent): 实现主循环与决策解析`
+12. `feat(cli): 添加交互式 CLI 与日志`
+13. `docs: 补 README、测试记录与 AI 问题记录`（本次）
 
 ---
 
 ## 17. 验收清单
 
-- [ ] 新建 Session 输出 UUID；`--session` 严格恢复。
-- [ ] 两个 Session 的 messages/summary/todos 完全隔离。
-- [ ] MySQL 启动时自动建表。
-- [ ] 无 file 驱动、无 JSON Session 文件。
-- [ ] 四个工具可由 LLM 自主选择。
-- [ ] 主循环包含工具回填、错误回喂、max_steps。
-- [ ] 追问与跨重启继续可用。
-- [ ] 超预算触发摘要；失败降级。
-- [ ] trace 记录每次工具调用。
-- [ ] `go test ./...`、`-race`、`vet` 通过。
-- [ ] MySQL 集成测试通过。
-- [ ] 真实 DeepSeek 工具闭环通过。
-- [ ] README 说明 Memory 召回与放置。
+- [x] 新建 Session 输出 UUID；`--session` 严格恢复。
+- [x] 两个 Session 的 messages/summary/todos 完全隔离。
+- [x] MySQL 启动时自动建表。
+- [x] 无 file 驱动、无 JSON Session 文件。
+- [x] 四个工具可由 LLM 自主选择。
+- [x] 主循环包含工具回填、错误回喂、max_steps。
+- [x] 追问与跨重启继续可用。
+- [x] 超预算触发摘要；失败降级。
+- [x] trace 记录每次工具调用。
+- [x] `go test ./...`、`-race`、`vet` 通过。
+- [x] MySQL 集成测试通过。
+- [x] 真实 DeepSeek 工具闭环通过。
+- [x] README 说明 Memory 召回与放置。
 - [ ] 无密钥，GitHub 已推送。
 
 ---
