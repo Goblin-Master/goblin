@@ -6,6 +6,7 @@
 *.key
 secrets/
 config.local.*
+config.yaml
 
 # ---- Python ----
 __pycache__/

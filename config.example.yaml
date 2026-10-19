@@ -1,0 +1,23 @@
+llm:
+  base_url: "https://api.deepseek.com"
+  model: "deepseek-chat"
+  api_key: ""          # 留空；推荐在 .env 中设置 DEEPSEEK_API_KEY
+  timeout: 90s
+  max_retries: 2
+  temperature: 0.2
+
+agent:
+  max_steps: 8
+  tool_timeout: 10s
+  max_context_tokens: 32000
+  reserve_output_tokens: 2048
+  compact_ratio: 0.75
+  keep_recent: 12
+  summary_max_tokens: 800
+
+storage:
+  dir: "./data"
+
+logging:
+  level: "info"
+  verbose: false
