@@ -13,6 +13,8 @@
 | [../GLOSSARY.md](../GLOSSARY.md) | 领域术语：Session / Turn / Run / Summary Cursor 等 | 所有人 |
 | [adr/0001-mysql-only-persistence.md](adr/0001-mysql-only-persistence.md) | 为什么 MySQL 是唯一存储 | 架构评审 |
 | [adr/0002-native-tool-calls.md](adr/0002-native-tool-calls.md) | 为什么使用原生 `tool_calls` | 架构评审 |
+| [adr/0003-viper-for-config.md](adr/0003-viper-for-config.md) | 为什么用 Viper 合并配置 | 配置维护者 |
+| [adr/0004-cobra-for-cli.md](adr/0004-cobra-for-cli.md) | 为什么用 Cobra 组织 CLI | CLI 维护者 |
 
 `docs/skills.md` 已删除：它描述的是 DSH 用户级技能目录，不是 Goblin 的项目知识，容易随环境变化而过期。
 
@@ -31,6 +33,7 @@
 | Agent 循环、最大轮次、压缩策略 | `spec.md` 第 7/10 节、`README.md` Memory 段 |
 | 新的领域术语或术语含义变化 | 立即更新 `GLOSSARY.md` |
 | 难以回退的架构决策 | 新增 `docs/adr/NNNN-*.md`，不要改写已接受的 ADR |
+| 外部技术选型（DB、CLI、配置、协议） | 新增 ADR，记录替代方案与代价 |
 | 测试结果、覆盖率、已知缺口 | `testing.md`，写日期与环境 |
 | 主循环、Memory 压缩、MySQL 关系图 | 同步更新 README 与 spec 中的 Mermaid 图 |
 | 明显的 AI 协作决策/踩坑 | `ai-prompts.md` |
@@ -57,5 +60,5 @@ go test ./...
 ## 最近核对
 
 - 日期：2026-10-20
-- 对应提交：Memory 重命名、Mermaid 图与文档检查脚本之后
+- 对应提交：Viper/Cobra ADR 与 Mermaid 图之后
 - 结论：README、spec、testing、ADR、术语表与当前代码一致

@@ -8,7 +8,7 @@
 - 持久化：MySQL 8.4（唯一存储后端）
 - 会话 ID：UUID v4（`github.com/google/uuid`）
 - 工具：`calculator`、`search`（mock）、`read_docs`、`todo`
-- 配套文档：[GLOSSARY.md](../GLOSSARY.md)、[ADR 0001](adr/0001-mysql-only-persistence.md)、[ADR 0002](adr/0002-native-tool-calls.md)
+- 配套文档：[GLOSSARY.md](../GLOSSARY.md)、[ADR 0001](adr/0001-mysql-only-persistence.md)、[ADR 0002](adr/0002-native-tool-calls.md)、[ADR 0003](adr/0003-viper-for-config.md)、[ADR 0004](adr/0004-cobra-for-cli.md)
 
 > 本版取代 v2。v2 中“每会话 JSON 文件”“file/mysql 双驱动”“可读 session id”的决定全部废止。
 
@@ -753,7 +753,8 @@ go test -tags=integration ./... -run MySQL -v
 15. `chore(db): 统一 MySQL 开发密码`
 16. `docs: 整理文档索引与维护规则`
 17. `refactor(memory): 重命名上下文管理器`
-18. `docs: 添加 Mermaid 流程图与 ER 图`（本次）
+18. `docs: 添加 Mermaid 流程图与 ER 图`
+19. `docs: 补充 Viper 与 Cobra ADR`（本次）
 
 ---
 

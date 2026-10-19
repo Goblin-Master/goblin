@@ -7,7 +7,7 @@ Goblin 不依赖 LangGraph、OpenHands、OpenClaw、PI 等 Agent 框架。主循
 - 规格：[docs/spec.md](docs/spec.md)
 - 文档索引与维护规则：[docs/README.md](docs/README.md)
 - 术语：[GLOSSARY.md](GLOSSARY.md)
-- 决策：[ADR 0001](docs/adr/0001-mysql-only-persistence.md)、[ADR 0002](docs/adr/0002-native-tool-calls.md)
+- 决策：[ADR 0001](docs/adr/0001-mysql-only-persistence.md)、[ADR 0002](docs/adr/0002-native-tool-calls.md)、[ADR 0003](docs/adr/0003-viper-for-config.md)、[ADR 0004](docs/adr/0004-cobra-for-cli.md)
 
 ## 能力
 

@@ -195,6 +195,17 @@
 - 在 `GLOSSARY.md` 增加 **Summary Cursor**，解释 `summary_up_to`；
 - 每次行为/配置/表结构变化，要求同一提交内更新 spec、README、testing 或 ADR。
 
+### 4.11 补记 Viper / Cobra ADR
+
+**问题**：MySQL 和 tool_calls 写了 ADR，但 Viper、Cobra 只出现在 README/spec，没有记录为什么选它们、放弃了什么。两者都是用户明确要求的技术选型，也都塑造了配置和 CLI 结构。
+
+**处理**：
+
+- 新增 ADR 0003（Viper）和 ADR 0004（Cobra）；
+- 记录替代方案与代价，而不只是“用了它”；
+- 在 README、`docs/README.md` 和 spec 顶部补齐链接；
+- 把“技术选型”加入 ADR 触发条件，避免只记录数据库/协议。
+
 ## 5. 密钥与安全
 
 - 所有真实 key 只写本地 `.env`；
