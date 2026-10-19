@@ -130,7 +130,9 @@ func (e *Engine) Run(ctx context.Context, sessionID, input string) (Reply, error
 	})
 	finish := func(r Reply, runErr error) (Reply, error) {
 		if runErr != nil {
-			_ = e.store.Save(sess)
+			if saveErr := e.store.Save(sess); saveErr != nil {
+				runErr = fmt.Errorf("%w（保存会话也失败: %v）", runErr, saveErr)
+			}
 			e.tracer.Emit("run.end", map[string]any{
 				"run_id": runID, "session_id": id, "ok": false, "error": runErr.Error(),
 			})

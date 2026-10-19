@@ -28,6 +28,8 @@ func TestLoadDefaultsAndEnvironment(t *testing.T) {
 	t.Setenv("GOBLIN_LLM_API_KEY", "test-key")
 	t.Setenv("DEEPSEEK_API_KEY", "")
 	t.Setenv("GOBLIN_LLM_MODEL", "deepseek-chat-test")
+	t.Setenv("GOBLIN_MYSQL_DSN", "user:pass@tcp(localhost:3306)/db")
+	t.Setenv("GOBLIN_LOGGING_DIR", filepath.Join(dir, "logs"))
 
 	cfg, err := Load(LoadOptions{
 		ConfigPath: filepath.Join(dir, "missing.yaml"),
@@ -41,6 +43,12 @@ func TestLoadDefaultsAndEnvironment(t *testing.T) {
 	}
 	if cfg.LLM.Model != "deepseek-chat-test" {
 		t.Fatalf("model = %q, env override failed", cfg.LLM.Model)
+	}
+	if cfg.MySQL.DSN != "user:pass@tcp(localhost:3306)/db" {
+		t.Fatalf("mysql dsn = %q", cfg.MySQL.DSN)
+	}
+	if cfg.Logging.Dir != filepath.Join(dir, "logs") {
+		t.Fatalf("logging dir = %q", cfg.Logging.Dir)
 	}
 	if cfg.LLM.BaseURL != "https://api.deepseek.com" {
 		t.Fatalf("base url = %q", cfg.LLM.BaseURL)

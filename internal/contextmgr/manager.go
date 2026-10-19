@@ -11,7 +11,7 @@ import (
 	"github.com/Goblin-Master/goblin/internal/session"
 )
 
-const toolResultLimit = 4 * 1024
+const toolResultLimit = 16 * 1024
 
 type Options struct {
 	Client              llm.ChatClient
@@ -130,8 +130,15 @@ func (m *Manager) cutoff(s *session.Session) int {
 }
 
 func (m *Manager) compactOnce(ctx context.Context, s *session.Session, cutoff int) error {
+	start := s.SummaryUpTo
+	if start < 0 {
+		start = 0
+	}
+	if start > cutoff {
+		start = cutoff
+	}
 	oldSummary := strings.TrimSpace(s.Summary)
-	transcript := renderTranscript(s.Messages[s.SummaryUpTo:cutoff])
+	transcript := renderTranscript(s.Messages[start:cutoff])
 	maxChars := m.InputBudget() * 3 / 2
 	if maxChars < 4000 {
 		maxChars = 4000
