@@ -1,0 +1,57 @@
+# ---- 环境与密钥 ----
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+config.local.*
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# ---- Node.js ----
+node_modules/
+.npm
+pnpm-debug.log*
+yarn-error.log*
+.nuxt/
+.next/
+.output/
+coverage/
+*.tsbuildinfo
+
+# ---- 数据与运行产物 ----
+data/
+logs/
+*.log
+*.sqlite
+*.sqlite3
+*.db
+.cache/
+tmp/
+
+# ---- 编辑器与系统 ----
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json.example
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
