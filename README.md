@@ -38,15 +38,25 @@ cmd/goblin
 
 一次 Run：
 
-```text
-用户输入
-  -> 追加 user message
-  -> 构建上下文（system + summary + recent messages）
-  -> 调 LLM
-  -> 无 tool_calls：保存 assistant，返回最终回答
-  -> 有 tool_calls：执行工具 -> 追加 tool result -> 下一 Step
-  -> 最多 max_steps 次 LLM 请求
+```mermaid
+flowchart TD
+    A["用户输入"] --> B["加载 Session<br/>更新 user message"]
+    B --> C["step = 1"]
+    C --> D["MaybeCompact<br/>预算检查 / 摘要"]
+    D --> E["Build context<br/>system + summary + recent"]
+    E --> F["调用 DeepSeek"]
+    F --> G{"返回 tool_calls?"}
+    G -- "否" --> H["追加 assistant<br/>保存 Session"]
+    H --> I["返回最终回答"]
+    G -- "是" --> J{"step == max_steps?"}
+    J -- "是" --> K["返回最大轮次错误"]
+    J -- "否" --> L["串行执行工具"]
+    L --> M["追加 role=tool 结果"]
+    M --> N["step++"]
+    N --> D
 ```
+
+`max_steps` 包含最后一次 LLM 请求；最后一步不再向模型暴露工具，要求它收尾。
 
 ## 快速开始
 
@@ -190,6 +200,21 @@ goblin help
 4. summary 写入 MySQL `sessions.summary`，`summary_up_to` 记录覆盖到哪条消息；
 5. 摘要失败则保留旧摘要并标注“更早内容已省略”，不阻断对话；
 6. `reasoning_content` 不回传模型；单条工具结果超过 16KB 时截断发送，MySQL 保留完整内容。
+
+```mermaid
+flowchart LR
+    A["已摘要前缀 0..n-1"] --> S["sessions.summary"]
+    B["messages 从 n 开始"] --> C["Build context"]
+    S --> C
+    C --> L["发送给 DeepSeek"]
+    S -. 下一次压缩 .-> N["旧 summary + 消息 n..cutoff-1"]
+    B -. cutoff .-> N
+    N --> R["LLM 生成新 summary"]
+    R --> U["summary_up_to = cutoff"]
+    U --> S
+```
+
+`summary_up_to` 是消息下标/条数，不是 token 数，也不是消息 ID。
 
 追问：
 

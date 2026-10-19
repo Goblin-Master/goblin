@@ -270,6 +270,43 @@ CREATE TABLE IF NOT EXISTS todos (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 ```
 
+```mermaid
+erDiagram
+    SESSIONS ||--o{ MESSAGES : contains
+    SESSIONS ||--o{ TODOS : owns
+
+    SESSIONS {
+        CHAR id PK
+        VARCHAR title
+        TEXT summary
+        INT summary_up_to
+        DATETIME created_at
+        DATETIME updated_at
+    }
+
+    MESSAGES {
+        BIGINT id PK
+        CHAR session_id FK
+        INT seq
+        VARCHAR role
+        TEXT content
+        TEXT reasoning
+        JSON tool_calls
+        VARCHAR tool_call_id
+        DATETIME created_at
+    }
+
+    TODOS {
+        CHAR session_id PK
+        VARCHAR todo_id PK
+        VARCHAR text
+        BOOLEAN done
+        DATETIME created_at
+    }
+```
+
+`todos` 的主键是 `(session_id, todo_id)`；`session_id` 同时受外键约束。
+
 ### 6.3 写入语义
 
 - `Save` 在一个事务内 `UPSERT sessions` + `DELETE messages WHERE session_id` + 按 `seq` 重插全部 messages。
@@ -305,6 +342,41 @@ CREATE TABLE IF NOT EXISTS todos (
       - 记录 trace
       - 进入下一 step
 4. 收尾请求仍无有效回答：返回“达到最大轮次”，并保存已完成消息
+```
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant U as 用户
+    participant CLI
+    participant E as Engine
+    participant M as Memory
+    participant DB as MySQL
+    participant L as DeepSeek
+    participant T as Tool Registry
+
+    U->>CLI: 输入
+    CLI->>E: Run(sessionID, input)
+    E->>DB: Load Session
+    DB-->>E: messages / summary / summary_up_to
+
+    loop 每个 Step，直到最终回答或 max_steps
+        E->>M: MaybeCompact + Build
+        M-->>E: system + summary + recent messages
+        E->>L: Chat(messages, tools)
+        L-->>E: content / tool_calls
+        alt 有 tool_calls
+            E->>T: 执行工具
+            T-->>E: 结构化结果
+            Note over E: 追加 role=tool，进入下一 Step
+        else 无 tool_calls
+            Note over E: 得到最终回答
+        end
+    end
+
+    E->>DB: Save Session（messages / summary）
+    E-->>CLI: Reply
+    CLI-->>U: 最终文本
 ```
 
 约定：
@@ -680,7 +752,8 @@ go test -tags=integration ./... -run MySQL -v
 14. `refactor(cli): 使用 Cobra 组织命令`
 15. `chore(db): 统一 MySQL 开发密码`
 16. `docs: 整理文档索引与维护规则`
-17. `refactor(memory): 重命名上下文管理器`（本次）
+17. `refactor(memory): 重命名上下文管理器`
+18. `docs: 添加 Mermaid 流程图与 ER 图`（本次）
 
 ---
 

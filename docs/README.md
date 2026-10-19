@@ -32,6 +32,7 @@
 | 新的领域术语或术语含义变化 | 立即更新 `GLOSSARY.md` |
 | 难以回退的架构决策 | 新增 `docs/adr/NNNN-*.md`，不要改写已接受的 ADR |
 | 测试结果、覆盖率、已知缺口 | `testing.md`，写日期与环境 |
+| 主循环、Memory 压缩、MySQL 关系图 | 同步更新 README 与 spec 中的 Mermaid 图 |
 | 明显的 AI 协作决策/踩坑 | `ai-prompts.md` |
 | 删除或移动文档 | 同步所有相对链接和 `docs/README.md` 地图 |
 
@@ -56,5 +57,5 @@ go test ./...
 ## 最近核对
 
 - 日期：2026-10-20
-- 对应提交：Cobra CLI + 统一 MySQL 密码之后
+- 对应提交：Memory 重命名、Mermaid 图与文档检查脚本之后
 - 结论：README、spec、testing、ADR、术语表与当前代码一致
