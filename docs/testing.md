@@ -65,9 +65,7 @@ go test -tags=integration ./internal/session ./internal/tools -v -timeout 60s
 | `TestMySQLStoreIsolation` | 两个 Session 的 messages 不串 |
 | `TestMySQLStoreMissingAndInvalid` | 缺失 Session / 非 UUID 拒绝 |
 | `TestMySQLStoreJSONToolCalls` | JSON 列往返 |
-| `TestMySQLTodoStoreLifecycle` | add / list / complete / remove / 未知 ID |
-| `TestMySQLTodoStoreIsolation` | 两个 Session 的 todos 不串 |
-| `TestMySQLTodoStoreRequiresSession` | 无 Session 时 add 返回不存在；非法 UUID 拒绝 |
+| `TestMySQLTodoStore` | add / list / complete / 未知 ID / 无 Session |
 
 结果：全部 PASS。
 

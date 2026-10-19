@@ -1,6 +1,6 @@
 # Goblin：最小可用 Agent 规格说明（v3）
 
-- 状态：已实现并验收（v3.4，2026-10-20）
+- 状态：已实现并验收（v3.5，2026-10-20）
 - 目标仓库：<https://github.com/Goblin-Master/goblin>
 - 语言：Go 1.25
 - 模型：DeepSeek `deepseek-chat`（OpenAI 兼容 Chat Completions）
@@ -142,7 +142,7 @@ goblin/
 │   ├── db/                # 打开 MySQL、连接池、执行内嵌 schema.sql
 │   ├── llm/               # ChatClient 接口、DeepSeek adapter
 │   ├── agent/             # Engine、parser、prompt
-│   ├── tools/             # Tool、Registry、四工具、Todo MySQL Store
+│   ├── tools/             # Tool、Registry、四工具
 │   ├── session/           # 模型、MySQL Session Store
 │   ├── memory/            # token 估算、Build、MaybeCompact
 │   ├── logging/           # slog、JSONL、事件与预览
@@ -756,7 +756,8 @@ go test -tags=integration ./... -run MySQL -v
 17. `refactor(memory): 重命名上下文管理器`
 18. `docs: 添加 Mermaid 流程图与 ER 图`
 19. `docs: 补充 Viper 与 Cobra ADR`
-20. `refactor(logging): 合并日志与 trace`（本次）
+20. `refactor(logging): 合并日志与 trace`
+21. `refactor(tools): 简化工具实现`（本次）
 
 ---
 

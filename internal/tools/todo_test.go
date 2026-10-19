@@ -2,13 +2,16 @@ package tools
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/Goblin-Master/goblin/internal/db"
 	"github.com/Goblin-Master/goblin/internal/session"
 )
 
@@ -126,5 +129,54 @@ func TestTodoToolIsolation(t *testing.T) {
 	}
 	if !strings.Contains(resB.Content, `"B"`) || strings.Contains(resB.Content, `"A"`) {
 		t.Fatalf("B = %s", resB.Content)
+	}
+}
+
+func openTodoTestDB(t *testing.T) (*sql.DB, *session.MySQLStore) {
+	t.Helper()
+	dsn := os.Getenv("GOBLIN_TEST_MYSQL_DSN")
+	if dsn == "" {
+		t.Skip("GOBLIN_TEST_MYSQL_DSN 未设置")
+	}
+	conn, err := db.Open(context.Background(), dsn)
+	if err != nil {
+		t.Fatalf("open MySQL: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	store, err := session.NewMySQLStore(conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return conn, store
+}
+
+func TestMySQLTodoStore(t *testing.T) {
+	conn, sessions := openTodoTestDB(t)
+	sid := session.NewID()
+	if _, err := sessions.Create(sid); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = conn.Exec(`DELETE FROM sessions WHERE id = ?`, sid) })
+
+	store, err := NewMySQLTodoStore(conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err := store.Add(context.Background(), sid, "write tests")
+	if err != nil || len(items) != 1 || items[0].ID != "t1" {
+		t.Fatalf("add = %+v, %v", items, err)
+	}
+	if _, err := store.Complete(context.Background(), sid, "t1"); err != nil {
+		t.Fatal(err)
+	}
+	items, err = store.List(context.Background(), sid)
+	if err != nil || !items[0].Done {
+		t.Fatalf("list = %+v, %v", items, err)
+	}
+	if _, err := store.Remove(context.Background(), sid, "missing"); err == nil {
+		t.Fatal("expected missing id error")
+	}
+	if _, err := store.Add(context.Background(), session.NewID(), "orphan"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("orphan add error = %v", err)
 	}
 }

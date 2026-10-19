@@ -19,10 +19,8 @@ type Definition struct {
 }
 
 type Call struct {
-	ID        string
 	Name      string
 	SessionID string
-	TraceID   string
 	Arguments json.RawMessage
 }
 
@@ -94,12 +92,6 @@ func (r *Registry) Definitions() []llm.ToolDefinition {
 		})
 	}
 	return defs
-}
-
-func (r *Registry) Names() []string {
-	out := make([]string, len(r.order))
-	copy(out, r.order)
-	return out
 }
 
 func (r *Registry) Execute(ctx context.Context, call Call) (result Result) {

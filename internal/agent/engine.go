@@ -219,10 +219,8 @@ func (e *Engine) Run(ctx context.Context, sessionID, input string) (Reply, error
 				"step", step, "tool_call_id", call.ID, "tool", call.Function.Name,
 				"arguments", logging.Preview(call.Function.Arguments, 500))
 			result := e.tools.Execute(ctx, tools.Call{
-				ID:        call.ID,
 				Name:      call.Function.Name,
 				SessionID: id,
-				TraceID:   traceID,
 				Arguments: json.RawMessage(call.Function.Arguments),
 			})
 			duration := time.Since(started).Milliseconds()
