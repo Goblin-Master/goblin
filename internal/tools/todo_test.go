@@ -3,78 +3,82 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/Goblin-Master/goblin/internal/session"
 )
 
-func TestTodoStoreLifecycle(t *testing.T) {
-	store, err := NewTodoStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	items, err := store.Add("session-a", "write tests")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(items) != 1 || items[0].ID != "t1" || items[0].Done {
-		t.Fatalf("items = %+v", items)
-	}
-	items, err = store.Complete("session-a", "t1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !items[0].Done {
-		t.Fatal("todo not completed")
-	}
-	items, err = store.Remove("session-a", "t1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(items) != 0 {
-		t.Fatalf("items = %+v", items)
-	}
-	if _, err := store.Complete("session-a", "missing"); err == nil {
-		t.Fatal("expected missing id error")
-	}
+type fakeTodoStore struct {
+	items map[string][]Todo
 }
 
-func TestTodoStoreIsolation(t *testing.T) {
-	store, _ := NewTodoStore(t.TempDir())
-	if _, err := store.Add("session-a", "A"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.Add("session-b", "B"); err != nil {
-		t.Fatal(err)
-	}
-	a, _ := store.List("session-a")
-	b, _ := store.List("session-b")
-	if len(a) != 1 || a[0].Text != "A" || len(b) != 1 || b[0].Text != "B" {
-		t.Fatalf("leaked: a=%+v b=%+v", a, b)
-	}
+func newFakeTodoStore() *fakeTodoStore {
+	return &fakeTodoStore{items: map[string][]Todo{}}
 }
 
-func TestTodoStorePersists(t *testing.T) {
-	dir := t.TempDir()
-	first, _ := NewTodoStore(dir)
-	if _, err := first.Add("session-a", "persist me"); err != nil {
-		t.Fatal(err)
+func (f *fakeTodoStore) List(_ context.Context, sessionID string) ([]Todo, error) {
+	return append([]Todo(nil), f.items[sessionID]...), nil
+}
+
+func (f *fakeTodoStore) Add(_ context.Context, sessionID, text string) ([]Todo, error) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil, errors.New("待办内容不能为空")
 	}
-	second, _ := NewTodoStore(dir)
-	items, err := second.List("session-a")
-	if err != nil {
-		t.Fatal(err)
+	next := 1
+	for _, item := range f.items[sessionID] {
+		var n int
+		if _, err := fmt.Sscanf(item.ID, "t%d", &n); err == nil && n >= next {
+			next = n + 1
+		}
 	}
-	if len(items) != 1 || items[0].Text != "persist me" {
-		t.Fatalf("items = %+v", items)
+	f.items[sessionID] = append(f.items[sessionID], Todo{
+		ID: fmt.Sprintf("t%d", next), Text: text, CreatedAt: time.Now(),
+	})
+	return f.List(context.Background(), sessionID)
+}
+
+func (f *fakeTodoStore) Complete(_ context.Context, sessionID, id string) ([]Todo, error) {
+	items := f.items[sessionID]
+	for i := range items {
+		if items[i].ID == id {
+			items[i].Done = true
+			f.items[sessionID] = items
+			return f.List(context.Background(), sessionID)
+		}
 	}
+	return nil, fmt.Errorf("待办 %q 不存在", id)
+}
+
+func (f *fakeTodoStore) Remove(_ context.Context, sessionID, id string) ([]Todo, error) {
+	items := f.items[sessionID]
+	out := make([]Todo, 0, len(items))
+	found := false
+	for _, item := range items {
+		if item.ID == id {
+			found = true
+			continue
+		}
+		out = append(out, item)
+	}
+	if !found {
+		return nil, fmt.Errorf("待办 %q 不存在", id)
+	}
+	f.items[sessionID] = out
+	return out, nil
 }
 
 func TestTodoToolActions(t *testing.T) {
-	store, _ := NewTodoStore(t.TempDir())
+	store := newFakeTodoStore()
 	tool := NewTodo(store)
+	sid := session.NewID()
 	call := func(args string) Result {
 		t.Helper()
-		res, err := tool.Execute(context.Background(), Call{SessionID: "session-a", Arguments: json.RawMessage(args)})
+		res, err := tool.Execute(context.Background(), Call{SessionID: sid, Arguments: json.RawMessage(args)})
 		if err != nil {
 			t.Fatalf("%s: %v", args, err)
 		}
@@ -92,13 +96,35 @@ func TestTodoToolActions(t *testing.T) {
 	if res := call(`{"action":"remove","id":"t1"}`); !strings.Contains(res.Content, `"items":[]`) {
 		t.Fatalf("remove = %s", res.Content)
 	}
-	if _, err := tool.Execute(context.Background(), Call{SessionID: "session-a", Arguments: json.RawMessage(`{"action":"add","text":""}`)}); err == nil {
+	if _, err := tool.Execute(context.Background(), Call{SessionID: sid, Arguments: json.RawMessage(`{"action":"add","text":""}`)}); err == nil {
 		t.Fatal("expected empty text error")
 	}
-	if _, err := tool.Execute(context.Background(), Call{SessionID: "session-a", Arguments: json.RawMessage(`{"action":"complete"}`)}); err == nil {
+	if _, err := tool.Execute(context.Background(), Call{SessionID: sid, Arguments: json.RawMessage(`{"action":"complete"}`)}); err == nil {
 		t.Fatal("expected missing id error")
 	}
 	if _, err := tool.Execute(context.Background(), Call{SessionID: "bad/id", Arguments: json.RawMessage(`{"action":"list"}`)}); err == nil {
 		t.Fatal("expected invalid session error")
+	}
+}
+
+func TestTodoToolIsolation(t *testing.T) {
+	store := newFakeTodoStore()
+	tool := NewTodo(store)
+	a, b := session.NewID(), session.NewID()
+	for _, tc := range []struct {
+		sid  string
+		text string
+	}{{a, "A"}, {b, "B"}} {
+		if _, err := tool.Execute(context.Background(), Call{SessionID: tc.sid, Arguments: json.RawMessage(`{"action":"add","text":"` + tc.text + `"}`)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	resA, _ := tool.Execute(context.Background(), Call{SessionID: a, Arguments: json.RawMessage(`{"action":"list"}`)})
+	resB, _ := tool.Execute(context.Background(), Call{SessionID: b, Arguments: json.RawMessage(`{"action":"list"}`)})
+	if !strings.Contains(resA.Content, `"A"`) || strings.Contains(resA.Content, `"B"`) {
+		t.Fatalf("A = %s", resA.Content)
+	}
+	if !strings.Contains(resB.Content, `"B"`) || strings.Contains(resB.Content, `"A"`) {
+		t.Fatalf("B = %s", resB.Content)
 	}
 }
