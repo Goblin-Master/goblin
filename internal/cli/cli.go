@@ -15,9 +15,9 @@ import (
 
 	"github.com/Goblin-Master/goblin/internal/agent"
 	"github.com/Goblin-Master/goblin/internal/config"
-	"github.com/Goblin-Master/goblin/internal/contextmgr"
 	"github.com/Goblin-Master/goblin/internal/db"
 	"github.com/Goblin-Master/goblin/internal/llm"
+	"github.com/Goblin-Master/goblin/internal/memory"
 	"github.com/Goblin-Master/goblin/internal/session"
 	"github.com/Goblin-Master/goblin/internal/tools"
 	"github.com/Goblin-Master/goblin/internal/trace"
@@ -131,7 +131,6 @@ type app struct {
 	conn    *sql.DB
 	store   *session.MySQLStore
 	engine  *agent.Engine
-	ctxmgr  *contextmgr.Manager
 	tracer  *trace.JSONL
 	logFile *os.File
 	verbose bool
@@ -182,7 +181,7 @@ func newApp(opts appOptions) (*app, error) {
 		cleanup()
 		return nil, err
 	}
-	ctxmgr, err := contextmgr.New(contextmgr.Options{
+	memoryManager, err := memory.New(memory.Options{
 		Client: client, Model: cfg.LLM.Model,
 		MaxContextTokens: cfg.Agent.MaxContextTokens, ReserveOutputTokens: cfg.Agent.ReserveOutputToken,
 		KeepRecent: cfg.Agent.KeepRecent, SummaryMaxTokens: cfg.Agent.SummaryMaxTokens,
@@ -204,7 +203,7 @@ func newApp(opts appOptions) (*app, error) {
 		return nil, err
 	}
 	engine, err := agent.New(agent.Options{
-		Client: client, Store: store, Tools: registry, Context: ctxmgr,
+		Client: client, Store: store, Tools: registry, Memory: memoryManager,
 		Tracer: tracer, Model: cfg.LLM.Model, MaxSteps: cfg.Agent.MaxSteps,
 		Temperature: cfg.LLM.Temperature,
 	})
@@ -216,7 +215,7 @@ func newApp(opts appOptions) (*app, error) {
 	}
 	return &app{
 		cfg: cfg, conn: conn, store: store, engine: engine,
-		ctxmgr: ctxmgr, tracer: tracer, logFile: logFile, verbose: opts.verbose,
+		tracer: tracer, logFile: logFile, verbose: opts.verbose,
 	}, nil
 }
 

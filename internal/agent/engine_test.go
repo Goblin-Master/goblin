@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Goblin-Master/goblin/internal/contextmgr"
 	"github.com/Goblin-Master/goblin/internal/llm"
+	"github.com/Goblin-Master/goblin/internal/memory"
 	"github.com/Goblin-Master/goblin/internal/session"
 	"github.com/Goblin-Master/goblin/internal/tools"
 	"github.com/Goblin-Master/goblin/internal/trace"
@@ -114,7 +114,7 @@ func newTestEngine(t *testing.T, responses []llm.ChatResponse, registryTools ...
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctxMgr, err := contextmgr.New(contextmgr.Options{
+	memoryManager, err := memory.New(memory.Options{
 		Client: client, Model: "deepseek-chat",
 		MaxContextTokens: 100000, ReserveOutputTokens: 1000,
 		KeepRecent: 4, SummaryMaxTokens: 100, CompactRatio: 0.75,
@@ -124,7 +124,7 @@ func newTestEngine(t *testing.T, responses []llm.ChatResponse, registryTools ...
 	}
 	mem := &trace.Memory{}
 	engine, err := New(Options{
-		Client: client, Store: store, Tools: registry, Context: ctxMgr,
+		Client: client, Store: store, Tools: registry, Memory: memoryManager,
 		Tracer: mem, Model: "deepseek-chat", MaxSteps: 8, Temperature: 0.2,
 	})
 	if err != nil {

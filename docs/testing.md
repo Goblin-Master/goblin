@@ -12,7 +12,7 @@
 | `llm.ChatClient` | 主循环、工具回填、追问、max_steps | fake LLM |
 | `session.Store` | Session 生命周期、消息隔离 | fake / MySQL integration |
 | `tools.Tool` + `Registry` | Schema、参数校验、panic、超时 | fake tool |
-| `contextmgr` + `ChatClient` | 预算、切点、摘要失败降级 | fake summarizer |
+| `memory` + `ChatClient` | 预算、切点、摘要失败降级 | fake summarizer |
 | DeepSeek HTTP | 请求格式、tool_calls、重试、错误 | `httptest.Server` |
 | 真实 DeepSeek | 计算、追问、read_docs | 真实 API |
 | MySQL | 事务、JSON 列、级联、UUID | 真实容器 |
@@ -41,7 +41,7 @@ go vet ./...
 - search：命中、空结果、limit；
 - read_docs：list/read、README、路径穿越、绝对路径、目录外文件、符号链接逃逸、大小上限；
 - Registry：重复注册、非法 Schema、未知工具、panic、超时、参数校验；
-- contextmgr：token 估算、摘要注入、切点对齐、失败降级、工具结果截断；
+- memory：token 估算、摘要注入、切点对齐、失败降级、工具结果截断；
 - Agent：直接回答、单/多工具、工具错误回喂、未知工具、max_steps、追问、缺失 Session、非法 UUID；
 - parser：纯回答、tool_calls、reasoning、空响应；
 - config：默认值、环境变量、`.env` 优先级、非法值；
@@ -75,7 +75,7 @@ go test -tags=integration ./internal/session ./internal/tools -v -timeout 60s
 | 包 | 覆盖率 |
 |---|---|
 | `internal/agent` | 70.0% |
-| `internal/contextmgr` | 76.9% |
+| `internal/memory` | 76.9% |
 | `internal/session` | 78.2% |
 | `internal/tools` | 83.7% |
 

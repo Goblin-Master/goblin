@@ -30,7 +30,7 @@ cmd/goblin
        ├─ internal/db       MySQL 连接 + 幂等 schema
        ├─ internal/agent    Engine / parser / prompt
        │    ├─ internal/llm        DeepSeek adapter
-       │    ├─ internal/contextmgr 预算 / 摘要
+       │    ├─ internal/memory       预算 / 摘要
        │    ├─ internal/tools      Registry + 四工具
        │    └─ internal/session    MySQL Store
        └─ internal/trace    JSONL

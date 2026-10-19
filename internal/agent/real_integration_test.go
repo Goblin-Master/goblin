@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/Goblin-Master/goblin/internal/config"
-	"github.com/Goblin-Master/goblin/internal/contextmgr"
 	"github.com/Goblin-Master/goblin/internal/llm"
+	"github.com/Goblin-Master/goblin/internal/memory"
 	"github.com/Goblin-Master/goblin/internal/session"
 	"github.com/Goblin-Master/goblin/internal/tools"
 	"github.com/Goblin-Master/goblin/internal/trace"
@@ -42,7 +42,7 @@ func TestRealDeepSeekToolLoop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctxMgr, err := contextmgr.New(contextmgr.Options{
+	memoryManager, err := memory.New(memory.Options{
 		Client: client, Model: cfg.LLM.Model,
 		MaxContextTokens: 32000, ReserveOutputTokens: 2048,
 		KeepRecent: 12, SummaryMaxTokens: 800, CompactRatio: 0.75,
@@ -56,7 +56,7 @@ func TestRealDeepSeekToolLoop(t *testing.T) {
 		t.Fatal(err)
 	}
 	engine, err := New(Options{
-		Client: client, Store: store, Tools: registry, Context: ctxMgr,
+		Client: client, Store: store, Tools: registry, Memory: memoryManager,
 		Tracer: trace.Nop{}, Model: cfg.LLM.Model, MaxSteps: 8, Temperature: 0.2,
 	})
 	if err != nil {

@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Goblin-Master/goblin/internal/contextmgr"
 	"github.com/Goblin-Master/goblin/internal/llm"
+	"github.com/Goblin-Master/goblin/internal/memory"
 	"github.com/Goblin-Master/goblin/internal/session"
 	"github.com/Goblin-Master/goblin/internal/tools"
 	"github.com/Goblin-Master/goblin/internal/trace"
@@ -22,7 +22,7 @@ type Options struct {
 	Client      llm.ChatClient
 	Store       session.Store
 	Tools       *tools.Registry
-	Context     *contextmgr.Manager
+	Memory      *memory.Manager
 	Tracer      trace.Tracer
 	Model       string
 	MaxSteps    int
@@ -33,7 +33,7 @@ type Engine struct {
 	client      llm.ChatClient
 	store       session.Store
 	tools       *tools.Registry
-	context     *contextmgr.Manager
+	memory      *memory.Manager
 	tracer      trace.Tracer
 	model       string
 	maxSteps    int
@@ -69,8 +69,8 @@ func New(opts Options) (*Engine, error) {
 	if opts.Tools == nil {
 		return nil, errors.New("tool registry 不能为空")
 	}
-	if opts.Context == nil {
-		return nil, errors.New("context manager 不能为空")
+	if opts.Memory == nil {
+		return nil, errors.New("memory manager 不能为空")
 	}
 	if strings.TrimSpace(opts.Model) == "" {
 		return nil, errors.New("model 不能为空")
@@ -85,7 +85,7 @@ func New(opts Options) (*Engine, error) {
 		client:      opts.Client,
 		store:       opts.Store,
 		tools:       opts.Tools,
-		context:     opts.Context,
+		memory:      opts.Memory,
 		tracer:      opts.Tracer,
 		model:       opts.Model,
 		maxSteps:    opts.MaxSteps,
@@ -154,13 +154,13 @@ func (e *Engine) Run(ctx context.Context, sessionID, input string) (Reply, error
 	system := buildSystemPrompt(now)
 	emptyRetries := 0
 	for step := 1; step <= e.maxSteps; step++ {
-		before := contextmgr.EstimateTokens(e.context.Build(sess, system))
-		compacted, compactErr := e.context.MaybeCompact(ctx, sess, system)
+		before := memory.EstimateTokens(e.memory.Build(sess, system))
+		compacted, compactErr := e.memory.MaybeCompact(ctx, sess, system)
 		if compactErr != nil {
 			return finish(reply, fmt.Errorf("压缩上下文失败: %w", compactErr))
 		}
 		if compacted {
-			after := contextmgr.EstimateTokens(e.context.Build(sess, system))
+			after := memory.EstimateTokens(e.memory.Build(sess, system))
 			e.tracer.Emit("context.compact", map[string]any{
 				"run_id": runID, "session_id": id, "step": step,
 				"tokens_before": before, "tokens_after": after, "summary_up_to": sess.SummaryUpTo,
@@ -169,7 +169,7 @@ func (e *Engine) Run(ctx context.Context, sessionID, input string) (Reply, error
 
 		req := llm.ChatRequest{
 			Model:       e.model,
-			Messages:    e.context.Build(sess, system),
+			Messages:    e.memory.Build(sess, system),
 			Temperature: e.temperature,
 		}
 		if step < e.maxSteps {
@@ -273,7 +273,7 @@ func (e *Engine) Compact(ctx context.Context, sessionID string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	compacted, err := e.context.MaybeCompact(ctx, sess, buildSystemPrompt(time.Now()))
+	compacted, err := e.memory.MaybeCompact(ctx, sess, buildSystemPrompt(time.Now()))
 	if err != nil {
 		return false, err
 	}

@@ -1,4 +1,4 @@
-package contextmgr
+package memory
 
 import (
 	"context"

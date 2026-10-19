@@ -43,6 +43,7 @@ $staleTerms = @(
     "flag.NewFlagSet",
     "JSONStore",
     "storage.driver",
+    "contextmgr",
     "weather(mock)"
 )
 foreach ($file in $staleFiles) {

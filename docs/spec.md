@@ -1,6 +1,6 @@
 # Goblin：最小可用 Agent 规格说明（v3）
 
-- 状态：已实现并验收（v3.2，2026-10-20）
+- 状态：已实现并验收（v3.3，2026-10-20）
 - 目标仓库：<https://github.com/Goblin-Master/goblin>
 - 语言：Go 1.25
 - 模型：DeepSeek `deepseek-chat`（OpenAI 兼容 Chat Completions）
@@ -127,7 +127,7 @@ Agent> keep_recent 默认 12；如果上一轮结果已被压缩，我会重新�
         │           └────────────────┘
         │
 ┌───────▼───────────────────┐  ┌────────────────────────────┐
-│ internal/contextmgr       │  │ internal/trace             │
+│ internal/memory            │  │ internal/trace             │
 │ token 估算 / 摘要 / 裁剪   │  │ JSONL trace + 控制台输出    │
 └───────────────────────────┘  └────────────────────────────┘
 ```
@@ -144,7 +144,7 @@ goblin/
 │   ├── agent/             # Engine、parser、prompt
 │   ├── tools/             # Tool、Registry、四工具、Todo MySQL Store
 │   ├── session/           # 模型、MySQL Session Store
-│   ├── contextmgr/        # token 估算、Build、MaybeCompact
+│   ├── memory/            # token 估算、Build、MaybeCompact
 │   ├── trace/             # trace 事件、JSONL Recorder
 │   └── cli/               # Cobra 命令树、REPL、one-shot
 ├── docker-compose.yml     # MySQL 8.4
@@ -190,7 +190,7 @@ type Tool interface {
     Execute(ctx context.Context, call Call) (Result, error)
 }
 
-// 上下文接缝。
+// Memory 接缝：构建发送上下文、压缩旧消息。
 func (m *Manager) Build(s *Session, system string) []llm.Message
 func (m *Manager) MaybeCompact(ctx context.Context, s *Session, system string) (bool, error)
 ```
@@ -602,7 +602,7 @@ go run ./cmd/goblin chat
 - calculator、search、read_docs 的安全路径；
 - Registry 注册/未知工具/panic/超时；
 - parser：纯文本、多 tool_calls、reasoning、空响应；
-- contextmgr：token 估算、压缩切点、摘要失败降级；
+- memory：token 估算、压缩切点、摘要失败降级；
 - Agent 循环：直接回答、工具闭环、多工具、工具错误、max_steps、追问、取消；
 - 使用 `FakeStore` / `FakeLLM`，只实现接口，不引入 file 运行时。
 
@@ -679,7 +679,8 @@ go test -tags=integration ./... -run MySQL -v
 13. `docs: 补 README、测试记录与 AI 问题记录`
 14. `refactor(cli): 使用 Cobra 组织命令`
 15. `chore(db): 统一 MySQL 开发密码`
-16. `docs: 整理文档索引与维护规则`（本次）
+16. `docs: 整理文档索引与维护规则`
+17. `refactor(memory): 重命名上下文管理器`（本次）
 
 ---
 
