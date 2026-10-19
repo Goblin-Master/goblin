@@ -5,8 +5,12 @@ Goblin 是一个单用户、多 Session 的 CLI Agent；它的核心对象是持
 ## Language
 
 **Session**：
-一段可持久化、可恢复的独立对话，由 UUID 标识，拥有自己的消息、摘要和待办。
+一段可持久化、可恢复的独立对话，由 UUID 标识，拥有自己的消息、摘要、摘要游标和待办。
 _Avoid_: conversation、聊天记录、窗口
+
+**Summary Cursor**：
+Session 消息序列中已被 Memory Summary 覆盖的前缀长度；值为 `n` 表示 `messages[0:n]` 已摘要，构建上下文时从 `messages[n:]` 开始。
+_Avoid_: token 水位、消息 ID、时间戳
 
 **Window**：
 一个 CLI 进程与一个 Session 的绑定；窗口关闭不代表 Session 结束。

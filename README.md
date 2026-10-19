@@ -5,6 +5,7 @@
 Goblin 不依赖 LangGraph、OpenHands、OpenClaw、PI 等 Agent 框架。主循环、工具注册、上下文压缩、Session 持久化都在本仓库实现；模型使用 DeepSeek 的 OpenAI 兼容 Chat Completions API。
 
 - 规格：[docs/spec.md](docs/spec.md)
+- 文档索引与维护规则：[docs/README.md](docs/README.md)
 - 术语：[GLOSSARY.md](GLOSSARY.md)
 - 决策：[ADR 0001](docs/adr/0001-mysql-only-persistence.md)、[ADR 0002](docs/adr/0002-native-tool-calls.md)
 
@@ -199,6 +200,7 @@ goblin help
 
 ## MySQL
 
+- 本地默认账号：`goblin / 123456`；root 使用同一密码（仅开发环境）。
 - `sessions`：id、title、summary、summary_up_to、时间戳
 - `messages`：session_id、seq、role、content、reasoning、tool_calls JSON、tool_call_id
 - `todos`：session_id、todo_id、text、done、created_at

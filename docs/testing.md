@@ -229,3 +229,17 @@ goblin-mysql  mysql:8.4  Up (healthy)  0.0.0.0:3306->3306/tcp
 - 摘要压缩的真实 API 长对话压力测试（单测已覆盖逻辑）；
 - Windows 控制台 Ctrl-C 对阻塞 stdin 的即时打断；
 - 超大文档分页读取（当前 64KB 上限，发送前 16KB 截断）。
+
+## 9. 文档检查
+
+```powershell
+.\scripts\check-docs.ps1
+```
+
+结果：PASS。检查项：
+
+- README、GLOSSARY、docs 下所有 Markdown 的相对链接可解析；
+- 不再出现旧的 MySQL 开发密码、标准库 flag 命令行、已删除的 JSON Store 等过期术语；
+- `.env` 存在时确认被 git 忽略；
+- 文档索引 `docs/README.md` 与维护规则已更新。
+

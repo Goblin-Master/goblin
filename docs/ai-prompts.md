@@ -49,19 +49,22 @@
 每个阶段单独提交，不要攒一个大提交。
 ```
 
-实际提交顺序：
+实际提交顺序（主要垂直切片）：
 
 1. 配置与 `.env`；
 2. DeepSeek 客户端；
 3. 工具与 Registry；
-4. 会话存储；
+4. Session 与 UUID；
 5. MySQL schema 与 Docker；
 6. MySQL Session；
 7. MySQL todo；
 8. 上下文压缩；
 9. trace；
 10. Agent 主循环；
-11. CLI。
+11. CLI；
+12. Cobra 重构；
+13. 统一 MySQL 密码；
+14. 文档索引与维护规则。
 
 ## 3. Agent System Prompt（实现中的版本）
 
@@ -179,6 +182,18 @@
 - `chat` / `run` 的 `--session` / `--new` / `--verbose` 放各自 Flags；
 - 保留 `Main(args, stdout, stderr) int` 作为测试接缝；
 - Cobra 负责帮助、未知命令和参数校验，`SilenceUsage` 避免错误时刷整页帮助。
+
+### 4.10 文档偏移与维护
+
+**问题**：功能迭代后，README、spec、testing、AI 记录容易出现命令、默认值、密码或实现细节不一致；`docs/skills.md` 还是 DSH 环境说明，不属于项目知识。
+
+**处理**：
+
+- 新增 `docs/README.md`：文档地图、更新触发条件、文档层级、提交前检查；
+- 删除 `docs/skills.md`；
+- 新增 `scripts/check-docs.ps1`：检查相对链接、过期术语、`.env` 忽略状态；
+- 在 `GLOSSARY.md` 增加 **Summary Cursor**，解释 `summary_up_to`；
+- 每次行为/配置/表结构变化，要求同一提交内更新 spec、README、testing 或 ADR。
 
 ## 5. 密钥与安全
 

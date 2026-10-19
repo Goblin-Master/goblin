@@ -1,6 +1,6 @@
 # Goblin：最小可用 Agent 规格说明（v3）
 
-- 状态：已实现并验收（v3.1，2026-10-20）
+- 状态：已实现并验收（v3.2，2026-10-20）
 - 目标仓库：<https://github.com/Goblin-Master/goblin>
 - 语言：Go 1.25
 - 模型：DeepSeek `deepseek-chat`（OpenAI 兼容 Chat Completions）
@@ -153,6 +153,7 @@ goblin/
 ├── .env.example
 ├── GLOSSARY.md
 ├── docs/
+│   ├── README.md              # 文档索引与维护规则
 │   ├── spec.md
 │   ├── testing.md
 │   ├── ai-prompts.md
@@ -382,6 +383,8 @@ type Decision struct {
 ---
 
 ## 9. Session 与 CLI
+
+CLI 由 Cobra 组织为 `goblin` 根命令和 `chat` / `run` / `sessions` 子命令；`--config`、`--env-file` 是持久 flag。
 
 ### 9.1 命令
 
@@ -675,6 +678,8 @@ go test -tags=integration ./... -run MySQL -v
 12. `feat(cli): 添加交互式 CLI 与日志`
 13. `docs: 补 README、测试记录与 AI 问题记录`
 14. `refactor(cli): 使用 Cobra 组织命令`
+15. `chore(db): 统一 MySQL 开发密码`
+16. `docs: 整理文档索引与维护规则`（本次）
 
 ---
 
@@ -704,4 +709,4 @@ go test -tags=integration ./... -run MySQL -v
 3. **删除 Session**：本版不提供 CLI 删除命令；需要时直接执行 SQL，外键会级联清理。
 4. **Docker PATH**：不要求用户改 PATH；`scripts/dev.ps1` 自动定位 Docker Desktop 的 `docker.exe`。
 
-v3 的设计树已无未决分支。若这四项中的任何一项需要改变，再开新 ADR，不直接修改本规格。
+v3.2 的设计树已无未决分支。若这四项中的任何一项需要改变，再开新 ADR，不直接修改本规格。
