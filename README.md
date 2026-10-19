@@ -11,6 +11,7 @@ Goblin 不依赖 LangGraph、OpenHands、OpenClaw、PI 等 Agent 框架。主循
 ## 能力
 
 - 原生 `tool_calls`：工具名称、描述、JSON Schema 随请求发送，模型自主决策。
+- CLI：Cobra 命令树（`chat` / `run` / `sessions`），保留交互式 REPL。
 - 四个工具：`calculator`、`search`（mock）、`read_docs`、`todo`。
 - Agent 主循环：工具执行、结果回填、错误回喂、最大轮次。
 - Session：UUID、严格恢复、MySQL 持久化、两个窗口互相隔离。
@@ -23,7 +24,7 @@ Goblin 不依赖 LangGraph、OpenHands、OpenClaw、PI 等 Agent 框架。主循
 
 ```text
 cmd/goblin
-  └─ internal/cli
+  └─ internal/cli     Cobra 命令树
        ├─ internal/config   Viper + .env
        ├─ internal/db       MySQL 连接 + 幂等 schema
        ├─ internal/agent    Engine / parser / prompt

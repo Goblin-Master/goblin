@@ -168,6 +168,18 @@
 - 文档、schema、Session、todo、上下文、Agent、CLI 分开；
 - 提交前跑对应包测试。
 
+### 4.9 CLI 规范化
+
+**问题**：初版用标准库 `flag` + 手写 `switch args[0]`，命令行帮助、子命令和 flag 继承都要自己维护。
+
+**处理**：
+
+- 引入 Cobra，根命令 `goblin`，子命令 `chat` / `run` / `sessions`；
+- 公共 `--config` / `--env-file` 放 PersistentFlags；
+- `chat` / `run` 的 `--session` / `--new` / `--verbose` 放各自 Flags；
+- 保留 `Main(args, stdout, stderr) int` 作为测试接缝；
+- Cobra 负责帮助、未知命令和参数校验，`SilenceUsage` 避免错误时刷整页帮助。
+
 ## 5. 密钥与安全
 
 - 所有真实 key 只写本地 `.env`；

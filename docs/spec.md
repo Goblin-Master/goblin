@@ -146,7 +146,7 @@ goblin/
 │   ├── session/           # 模型、MySQL Session Store
 │   ├── contextmgr/        # token 估算、Build、MaybeCompact
 │   ├── trace/             # trace 事件、JSONL Recorder
-│   └── cli/               # REPL、命令、one-shot
+│   └── cli/               # Cobra 命令树、REPL、one-shot
 ├── docker-compose.yml     # MySQL 8.4
 ├── scripts/dev.ps1        # Docker Desktop 辅助脚本
 ├── config.example.yaml
@@ -160,7 +160,7 @@ goblin/
 └── README.md
 ```
 
-依赖：Viper、`google/uuid`、`go-sql-driver/mysql`。其他用标准库。
+依赖：Cobra（CLI 命令树）、Viper（配置）、`google/uuid`、`go-sql-driver/mysql`。其他用标准库。
 
 ### 4.2 深模块接口
 
@@ -673,7 +673,8 @@ go test -tags=integration ./... -run MySQL -v
 10. `feat(trace): 添加 JSONL 执行追踪`
 11. `feat(agent): 实现主循环与决策解析`
 12. `feat(cli): 添加交互式 CLI 与日志`
-13. `docs: 补 README、测试记录与 AI 问题记录`（本次）
+13. `docs: 补 README、测试记录与 AI 问题记录`
+14. `refactor(cli): 使用 Cobra 组织命令`
 
 ---
 

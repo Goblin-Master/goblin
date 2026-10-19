@@ -5,7 +5,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"log/slog"
@@ -22,50 +21,103 @@ import (
 	"github.com/Goblin-Master/goblin/internal/session"
 	"github.com/Goblin-Master/goblin/internal/tools"
 	"github.com/Goblin-Master/goblin/internal/trace"
+	"github.com/spf13/cobra"
 )
 
-// Main dispatches one CLI invocation and returns a process exit code.
+// Main builds the Cobra command tree, executes one invocation, and returns an
+// exit code. stdout/stderr are injected so command behavior is testable.
 func Main(args []string, stdout, stderr io.Writer) int {
-	if len(args) == 0 {
-		printUsage(stdout)
-		return 0
-	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	var err error
-	switch args[0] {
-	case "chat":
-		err = runChat(ctx, args[1:], stdout, stderr)
-	case "run":
-		err = runOnce(ctx, args[1:], stdout, stderr)
-	case "sessions":
-		err = runSessions(args[1:], stdout)
-	case "help", "-h", "--help":
-		printUsage(stdout)
-		return 0
-	default:
-		err = fmt.Errorf("未知命令 %q（可用：chat / run / sessions / help）", args[0])
-	}
-	if err != nil {
+
+	root := newRootCommand(stdout, stderr)
+	root.SetArgs(args)
+	root.SetContext(ctx)
+	if err := root.Execute(); err != nil {
 		fmt.Fprintln(stderr, "错误:", err)
 		return 1
 	}
 	return 0
 }
 
-func printUsage(w io.Writer) {
-	fmt.Fprintln(w, `Goblin - 最小可用 CLI Agent
+type rootOptions struct {
+	configPath string
+	envPath    string
+}
 
-用法:
-  goblin chat [--session UUID] [--new] [--verbose]
-  goblin run --session UUID "问题"
-  goblin sessions
-  goblin help
+func newRootCommand(stdout, stderr io.Writer) *cobra.Command {
+	opts := &rootOptions{}
+	root := &cobra.Command{
+		Use:   "goblin",
+		Short: "从零实现的最小可用 CLI Agent",
+		Long: `Goblin 是一个不依赖 Agent 框架的 CLI Agent。
 
-通用选项:
-  --config PATH       配置文件，默认 config.yaml
-  --env-file PATH     环境文件，默认 .env
-  --verbose           打印工具调用摘要`)
+它使用 DeepSeek 原生 tool_calls 完成工具决策，使用 MySQL 持久化
+Session、消息、摘要与待办，并在上下文超预算时自动压缩。`,
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		Args:          cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return cmd.Help()
+		},
+		CompletionOptions: cobra.CompletionOptions{DisableDefaultCmd: true},
+	}
+	root.SetOut(stdout)
+	root.SetErr(stderr)
+	root.PersistentFlags().StringVar(&opts.configPath, "config", "", "配置文件路径，默认 config.yaml")
+	root.PersistentFlags().StringVar(&opts.envPath, "env-file", "", "环境文件路径，默认 .env")
+
+	root.AddCommand(
+		newChatCommand(opts, stdout),
+		newRunCommand(opts, stdout),
+		newSessionsCommand(opts, stdout),
+	)
+	return root
+}
+
+func newChatCommand(opts *rootOptions, stdout io.Writer) *cobra.Command {
+	var sessionID string
+	var newSession bool
+	var verbose bool
+	cmd := &cobra.Command{
+		Use:   "chat",
+		Short: "新建或恢复 Session，进入交互模式",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runChat(cmd.Context(), opts, sessionID, newSession, verbose, stdout)
+		},
+	}
+	cmd.Flags().StringVar(&sessionID, "session", "", "恢复已存在的 UUID 会话")
+	cmd.Flags().BoolVar(&newSession, "new", false, "强制新建会话")
+	cmd.Flags().BoolVar(&verbose, "verbose", false, "打印工具调用摘要")
+	return cmd
+}
+
+func newRunCommand(opts *rootOptions, stdout io.Writer) *cobra.Command {
+	var sessionID string
+	var verbose bool
+	cmd := &cobra.Command{
+		Use:   "run --session <uuid> <问题>",
+		Short: "在已存在的 Session 中执行一次输入",
+		Args:  cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runOnce(cmd.Context(), opts, sessionID, strings.Join(args, " "), verbose, stdout)
+		},
+	}
+	cmd.Flags().StringVar(&sessionID, "session", "", "已存在的 UUID 会话")
+	cmd.Flags().BoolVar(&verbose, "verbose", false, "打印工具调用摘要")
+	return cmd
+}
+
+func newSessionsCommand(opts *rootOptions, stdout io.Writer) *cobra.Command {
+	return &cobra.Command{
+		Use:   "sessions",
+		Short: "列出所有 Session",
+		Args:  cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return runSessions(opts, stdout)
+		},
+	}
 }
 
 type appOptions struct {
@@ -199,34 +251,19 @@ func openLog(cfg config.LoggingConfig) (*os.File, error) {
 	return f, nil
 }
 
-func addCommonFlags(fs *flag.FlagSet) (*string, *string) {
-	configPath := fs.String("config", "", "配置文件路径")
-	envPath := fs.String("env-file", "", "环境文件路径")
-	return configPath, envPath
-}
-
-func runChat(ctx context.Context, args []string, stdout, stderr io.Writer) error {
-	fs := flag.NewFlagSet("chat", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	configPath, envPath := addCommonFlags(fs)
-	sessionID := fs.String("session", "", "恢复已存在的 UUID 会话")
-	newSession := fs.Bool("new", false, "强制新建会话")
-	verbose := fs.Bool("verbose", false, "打印工具调用摘要")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	if *sessionID != "" && *newSession {
+func runChat(ctx context.Context, opts *rootOptions, sessionID string, newSession, verbose bool, stdout io.Writer) error {
+	if sessionID != "" && newSession {
 		return errors.New("--session 与 --new 不能同时使用")
 	}
-	a, err := newApp(appOptions{configPath: *configPath, envPath: *envPath, verbose: *verbose})
+	a, err := newApp(appOptions{configPath: opts.configPath, envPath: opts.envPath, verbose: verbose})
 	if err != nil {
 		return err
 	}
 	defer a.Close()
 
 	var id string
-	if *sessionID != "" {
-		id, err = session.ParseID(*sessionID)
+	if sessionID != "" {
+		id, err = session.ParseID(sessionID)
 		if err != nil {
 			return err
 		}
@@ -397,46 +434,31 @@ func (a *app) listSessions(out io.Writer) error {
 	return nil
 }
 
-func runOnce(ctx context.Context, args []string, stdout, stderr io.Writer) error {
-	fs := flag.NewFlagSet("run", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	configPath, envPath := addCommonFlags(fs)
-	sessionID := fs.String("session", "", "已存在的 UUID 会话")
-	verbose := fs.Bool("verbose", false, "打印工具调用摘要")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	if *sessionID == "" {
+func runOnce(ctx context.Context, opts *rootOptions, sessionID, input string, verbose bool, stdout io.Writer) error {
+	if strings.TrimSpace(sessionID) == "" {
 		return errors.New("run 需要 --session <uuid>")
 	}
-	input := strings.Join(fs.Args(), " ")
 	if strings.TrimSpace(input) == "" {
 		return errors.New("run 需要一个问题")
 	}
-	a, err := newApp(appOptions{configPath: *configPath, envPath: *envPath, verbose: *verbose})
+	a, err := newApp(appOptions{configPath: opts.configPath, envPath: opts.envPath, verbose: verbose})
 	if err != nil {
 		return err
 	}
 	defer a.Close()
-	reply, err := a.engine.Run(ctx, *sessionID, input)
+	reply, err := a.engine.Run(ctx, sessionID, input)
 	if err != nil {
 		return err
 	}
 	fmt.Fprintln(stdout, reply.Text)
-	if *verbose {
+	if verbose {
 		a.printTools(stdout, reply.ToolCalls)
 	}
 	return nil
 }
 
-func runSessions(args []string, stdout io.Writer) error {
-	fs := flag.NewFlagSet("sessions", flag.ContinueOnError)
-	fs.SetOutput(io.Discard)
-	configPath, envPath := addCommonFlags(fs)
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	a, err := newApp(appOptions{configPath: *configPath, envPath: *envPath})
+func runSessions(opts *rootOptions, stdout io.Writer) error {
+	a, err := newApp(appOptions{configPath: opts.configPath, envPath: opts.envPath})
 	if err != nil {
 		return err
 	}

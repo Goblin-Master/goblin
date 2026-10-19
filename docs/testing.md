@@ -45,6 +45,7 @@ go vet ./...
 - Agent：直接回答、单/多工具、工具错误回喂、未知工具、max_steps、追问、缺失 Session、非法 UUID；
 - parser：纯回答、tool_calls、reasoning、空响应；
 - config：默认值、环境变量、`.env` 优先级、非法值；
+- CLI：Cobra 帮助、无参数帮助、未知命令、冲突 flag；
 - trace：JSONL 行数、事件字段、预览。
 
 ## 3. MySQL 集成测试
