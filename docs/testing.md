@@ -242,4 +242,3 @@ goblin-mysql  mysql:8.4  Up (healthy)  0.0.0.0:3306->3306/tcp
 - 不再出现旧的 MySQL 开发密码、标准库 flag 命令行、已删除的 JSON Store 等过期术语；
 - `.env` 存在时确认被 git 忽略；
 - 文档索引 `docs/README.md` 与维护规则已更新。
-
