@@ -1,6 +1,6 @@
 # Goblin：最小可用 Agent 规格说明（v3）
 
-- 状态：已实现并验收（v3.6，2026-10-20）
+- 状态：已实现并验收（v3.7，2026-10-20）
 - 目标仓库：<https://github.com/Goblin-Master/goblin>
 - 语言：Go 1.25
 - 模型：DeepSeek `deepseek-chat`（OpenAI 兼容 Chat Completions）
@@ -740,7 +740,8 @@ go test -tags=integration ./... -run MySQL -v
 19. `docs: 补充 Viper 与 Cobra ADR`
 20. `refactor(logging): 合并日志与 trace`
 21. `refactor(tools): 简化工具实现`
-22. `refactor(app): 引入组合根并拍平 cmd`（本次）
+22. `refactor(app): 引入组合根并拍平 cmd`
+23. `test(tools): 拆分 calculator 与 search 测试`（本次）
 
 ---
 

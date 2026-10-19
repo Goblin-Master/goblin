@@ -12,7 +12,7 @@ func TestNewIDIsUUID(t *testing.T) {
 	if !ValidID(id) {
 		t.Fatalf("id = %q", id)
 	}
-	if NewID() == NewID() {
+	if id1, id2 := NewID(), NewID(); id1 == id2 {
 		t.Fatal("UUIDs should be unique")
 	}
 }
