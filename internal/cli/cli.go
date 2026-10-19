@@ -3,7 +3,6 @@ package cli
 import (
 	"bufio"
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -12,13 +11,9 @@ import (
 	"strings"
 
 	"github.com/Goblin-Master/goblin/internal/agent"
-	"github.com/Goblin-Master/goblin/internal/config"
-	"github.com/Goblin-Master/goblin/internal/db"
-	"github.com/Goblin-Master/goblin/internal/llm"
+	"github.com/Goblin-Master/goblin/internal/app"
 	"github.com/Goblin-Master/goblin/internal/logging"
-	"github.com/Goblin-Master/goblin/internal/memory"
 	"github.com/Goblin-Master/goblin/internal/session"
-	"github.com/Goblin-Master/goblin/internal/tools"
 	"github.com/spf13/cobra"
 )
 
@@ -87,7 +82,7 @@ func newChatCommand(opts *rootOptions, stdout io.Writer) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&sessionID, "session", "", "恢复已存在的 UUID 会话")
 	cmd.Flags().BoolVar(&newSession, "new", false, "强制新建会话")
-	cmd.Flags().BoolVar(&verbose, "verbose", false, "打印工具调用摘要")
+	cmd.Flags().BoolVar(&verbose, "verbose", false, "打印 trace_id 与工具摘要")
 	return cmd
 }
 
@@ -103,7 +98,7 @@ func newRunCommand(opts *rootOptions, stdout io.Writer) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&sessionID, "session", "", "已存在的 UUID 会话")
-	cmd.Flags().BoolVar(&verbose, "verbose", false, "打印工具调用摘要")
+	cmd.Flags().BoolVar(&verbose, "verbose", false, "打印 trace_id 与工具摘要")
 	return cmd
 }
 
@@ -118,118 +113,24 @@ func newSessionsCommand(opts *rootOptions, stdout io.Writer) *cobra.Command {
 	}
 }
 
-type appOptions struct {
-	configPath string
-	envPath    string
-	verbose    bool
-}
-
-type app struct {
-	cfg     config.Config
-	conn    *sql.DB
-	store   *session.MySQLStore
-	engine  *agent.Engine
-	logFile *logging.File
-	verbose bool
-}
-
-func newApp(opts appOptions) (*app, error) {
-	cfg, err := config.Load(config.LoadOptions{ConfigPath: opts.configPath, EnvPath: opts.envPath})
-	if err != nil {
-		return nil, err
-	}
-	conn, err := db.Open(context.Background(), cfg.MySQL.DSN)
-	if err != nil {
-		return nil, err
-	}
-	cleanup := func() { _ = conn.Close() }
-
-	store, err := session.NewMySQLStore(conn)
-	if err != nil {
-		cleanup()
-		return nil, err
-	}
-	todoStore, err := tools.NewMySQLTodoStore(conn)
-	if err != nil {
-		cleanup()
-		return nil, err
-	}
-	root, err := os.Getwd()
-	if err != nil {
-		cleanup()
-		return nil, err
-	}
-	readDocs, err := tools.NewReadDocs(root, 64*1024)
-	if err != nil {
-		cleanup()
-		return nil, err
-	}
-	registry, err := tools.NewRegistryWithTimeout(cfg.Agent.ToolTimeout,
-		tools.NewCalculator(), tools.NewSearch(), readDocs, tools.NewTodo(todoStore))
-	if err != nil {
-		cleanup()
-		return nil, err
-	}
-	client, err := llm.NewDeepSeek(llm.Options{
-		BaseURL: cfg.LLM.BaseURL, APIKey: cfg.LLM.APIKey, Model: cfg.LLM.Model,
-		Timeout: cfg.LLM.Timeout, MaxRetries: cfg.LLM.MaxRetries, Temperature: cfg.LLM.Temperature,
-	})
-	if err != nil {
-		cleanup()
-		return nil, err
-	}
-	memoryManager, err := memory.New(memory.Options{
-		Client: client, Model: cfg.LLM.Model,
-		MaxContextTokens: cfg.Agent.MaxContextTokens, ReserveOutputTokens: cfg.Agent.ReserveOutputToken,
-		KeepRecent: cfg.Agent.KeepRecent, SummaryMaxTokens: cfg.Agent.SummaryMaxTokens,
-		CompactRatio: cfg.Agent.CompactRatio,
-	})
-	if err != nil {
-		cleanup()
-		return nil, err
-	}
-	logFile, err := logging.New(cfg.Logging.Dir, cfg.Logging.Level)
-	if err != nil {
-		cleanup()
-		return nil, err
-	}
-	engine, err := agent.New(agent.Options{
-		Client: client, Store: store, Tools: registry, Memory: memoryManager,
-		Logger: logFile.Logger, Model: cfg.LLM.Model, MaxSteps: cfg.Agent.MaxSteps,
-		Temperature: cfg.LLM.Temperature,
-	})
-	if err != nil {
-		_ = logFile.Close()
-		cleanup()
-		return nil, err
-	}
-	return &app{
-		cfg: cfg, conn: conn, store: store, engine: engine,
-		logFile: logFile, verbose: opts.verbose,
-	}, nil
-}
-
-func (a *app) Close() {
-	if a == nil {
-		return
-	}
-	if a.logFile != nil {
-		_ = a.logFile.Close()
-	}
-	if a.conn != nil {
-		_ = a.conn.Close()
-	}
+// runner holds a fully initialized App. Composition (config, MySQL, tools,
+// model, logging) happens in internal/app before this type is used.
+type runner struct {
+	*app.App
 }
 
 func runChat(ctx context.Context, opts *rootOptions, sessionID string, newSession, verbose bool, stdout io.Writer) error {
 	if sessionID != "" && newSession {
 		return errors.New("--session 与 --new 不能同时使用")
 	}
-	a, err := newApp(appOptions{configPath: opts.configPath, envPath: opts.envPath, verbose: verbose})
+	application, err := app.New(ctx, app.Options{
+		ConfigPath: opts.configPath, EnvPath: opts.envPath, Verbose: verbose,
+	})
 	if err != nil {
 		return err
 	}
-	defer a.Close()
+	defer application.Close()
+	r := &runner{App: application}
 
 	var id string
 	if sessionID != "" {
@@ -237,32 +138,24 @@ func runChat(ctx context.Context, opts *rootOptions, sessionID string, newSessio
 		if err != nil {
 			return err
 		}
-		if _, err := a.store.Load(id); err != nil {
+		if _, err := r.Store.Load(id); err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				return fmt.Errorf("会话 %s 不存在；用 goblin sessions 查看，或运行 goblin chat 新建", id)
 			}
 			return err
 		}
 	} else {
-		id, err = a.createSession()
+		id, err = r.CreateSession()
 		if err != nil {
 			return err
 		}
 	}
-	return a.repl(ctx, id, stdout)
+	return r.repl(ctx, id, stdout)
 }
 
-func (a *app) createSession() (string, error) {
-	id := session.NewID()
-	if _, err := a.store.Create(id); err != nil {
-		return "", err
-	}
-	return id, nil
-}
-
-func (a *app) repl(ctx context.Context, initialID string, out io.Writer) error {
+func (r *runner) repl(ctx context.Context, initialID string, out io.Writer) error {
 	id := initialID
-	fmt.Fprintf(out, "Goblin | model=%s | tools=%s\n", a.cfg.LLM.Model, strings.Join(a.toolsNames(), ", "))
+	fmt.Fprintf(out, "Goblin | model=%s | tools=%s\n", r.Config.LLM.Model, strings.Join(r.toolsNames(), ", "))
 	fmt.Fprintf(out, "Session: %s\n输入 /help 查看命令，/quit 退出。\n", id)
 	reader := bufio.NewReader(os.Stdin)
 	var last agent.Reply
@@ -281,7 +174,7 @@ func (a *app) repl(ctx context.Context, initialID string, out io.Writer) error {
 			continue
 		}
 		if strings.HasPrefix(input, "/") {
-			quit, newID, err := a.command(ctx, id, input, out, last)
+			quit, newID, err := r.command(ctx, id, input, out, last)
 			if err != nil {
 				fmt.Fprintln(out, "错误:", err)
 				continue
@@ -295,25 +188,25 @@ func (a *app) repl(ctx context.Context, initialID string, out io.Writer) error {
 			}
 			continue
 		}
-		reply, err := a.engine.Run(ctx, id, input)
+		reply, err := r.Engine.Run(ctx, id, input)
 		if err != nil {
 			fmt.Fprintln(out, "错误:", err)
 			continue
 		}
 		last = reply
 		fmt.Fprintf(out, "\nAgent> %s\n", reply.Text)
-		if a.verbose {
+		if r.Verbose {
 			fmt.Fprintf(out, "trace_id=%s\n", reply.TraceID)
-			a.printTools(out, reply.ToolCalls)
+			r.printTools(out, reply.ToolCalls)
 		}
 	}
 }
 
-func (a *app) toolsNames() []string {
+func (r *runner) toolsNames() []string {
 	return []string{"calculator", "search", "read_docs", "todo"}
 }
 
-func (a *app) printTools(out io.Writer, calls []agent.ToolCallRecord) {
+func (r *runner) printTools(out io.Writer, calls []agent.ToolCallRecord) {
 	for _, call := range calls {
 		status := "ok"
 		if call.IsError {
@@ -323,7 +216,7 @@ func (a *app) printTools(out io.Writer, calls []agent.ToolCallRecord) {
 	}
 }
 
-func (a *app) command(ctx context.Context, id, input string, out io.Writer, last agent.Reply) (bool, string, error) {
+func (r *runner) command(ctx context.Context, id, input string, out io.Writer, last agent.Reply) (bool, string, error) {
 	fields := strings.Fields(input)
 	switch fields[0] {
 	case "/quit", "/exit":
@@ -331,14 +224,14 @@ func (a *app) command(ctx context.Context, id, input string, out io.Writer, last
 	case "/help":
 		fmt.Fprintln(out, "/help  /new  /sessions  /switch <uuid>  /history [n]  /compact  /last  /quit")
 	case "/new":
-		newID, err := a.createSession()
+		newID, err := r.CreateSession()
 		if err != nil {
 			return false, "", err
 		}
 		fmt.Fprintf(out, "已切换新会话: %s\n", newID)
 		return false, newID, nil
 	case "/sessions":
-		return false, "", a.listSessions(out)
+		return false, "", r.listSessions(out)
 	case "/switch":
 		if len(fields) != 2 {
 			return false, "", errors.New("用法: /switch <uuid>")
@@ -347,7 +240,7 @@ func (a *app) command(ctx context.Context, id, input string, out io.Writer, last
 		if err != nil {
 			return false, "", err
 		}
-		if _, err := a.store.Load(newID); err != nil {
+		if _, err := r.Store.Load(newID); err != nil {
 			return false, "", err
 		}
 		fmt.Fprintf(out, "已切换会话: %s\n", newID)
@@ -357,7 +250,7 @@ func (a *app) command(ctx context.Context, id, input string, out io.Writer, last
 		if len(fields) == 2 {
 			_, _ = fmt.Sscanf(fields[1], "%d", &n)
 		}
-		sess, err := a.store.Load(id)
+		sess, err := r.Store.Load(id)
 		if err != nil {
 			return false, "", err
 		}
@@ -369,7 +262,7 @@ func (a *app) command(ctx context.Context, id, input string, out io.Writer, last
 			fmt.Fprintf(out, "[%s] %s\n", msg.Role, logging.Preview(msg.Content, 300))
 		}
 	case "/compact":
-		compacted, err := a.engine.Compact(ctx, id)
+		compacted, err := r.Engine.Compact(ctx, id)
 		if err != nil {
 			return false, "", err
 		}
@@ -384,7 +277,7 @@ func (a *app) command(ctx context.Context, id, input string, out io.Writer, last
 			break
 		}
 		fmt.Fprintf(out, "trace_id=%s\n", last.TraceID)
-		a.printTools(out, last.ToolCalls)
+		r.printTools(out, last.ToolCalls)
 		if len(last.ToolCalls) == 0 {
 			fmt.Fprintln(out, "上次运行没有工具调用。")
 		}
@@ -394,8 +287,8 @@ func (a *app) command(ctx context.Context, id, input string, out io.Writer, last
 	return false, "", nil
 }
 
-func (a *app) listSessions(out io.Writer) error {
-	metas, err := a.store.List()
+func (r *runner) listSessions(out io.Writer) error {
+	metas, err := r.Store.List()
 	if err != nil {
 		return err
 	}
@@ -417,28 +310,34 @@ func runOnce(ctx context.Context, opts *rootOptions, sessionID, input string, ve
 	if strings.TrimSpace(input) == "" {
 		return errors.New("run 需要一个问题")
 	}
-	a, err := newApp(appOptions{configPath: opts.configPath, envPath: opts.envPath, verbose: verbose})
+	application, err := app.New(ctx, app.Options{
+		ConfigPath: opts.configPath, EnvPath: opts.envPath, Verbose: verbose,
+	})
 	if err != nil {
 		return err
 	}
-	defer a.Close()
-	reply, err := a.engine.Run(ctx, sessionID, input)
+	defer application.Close()
+	reply, err := application.Engine.Run(ctx, sessionID, input)
 	if err != nil {
 		return err
 	}
 	fmt.Fprintln(stdout, reply.Text)
 	if verbose {
 		fmt.Fprintf(stdout, "trace_id=%s\n", reply.TraceID)
-		a.printTools(stdout, reply.ToolCalls)
+		r := &runner{App: application}
+		r.printTools(stdout, reply.ToolCalls)
 	}
 	return nil
 }
 
 func runSessions(opts *rootOptions, stdout io.Writer) error {
-	a, err := newApp(appOptions{configPath: opts.configPath, envPath: opts.envPath})
+	application, err := app.New(context.Background(), app.Options{
+		ConfigPath: opts.configPath, EnvPath: opts.envPath,
+	})
 	if err != nil {
 		return err
 	}
-	defer a.Close()
-	return a.listSessions(stdout)
+	defer application.Close()
+	r := &runner{App: application}
+	return r.listSessions(stdout)
 }

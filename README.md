@@ -24,17 +24,20 @@ Goblin 不依赖 LangGraph、OpenHands、OpenClaw、PI 等 Agent 框架。主循
 ## 架构
 
 ```text
-cmd/goblin
+cmd
   └─ internal/cli     Cobra 命令树
-       ├─ internal/config   Viper + .env
-       ├─ internal/db       MySQL 连接 + 幂等 schema
-       ├─ internal/agent    Engine / parser / prompt
-       │    ├─ internal/llm        DeepSeek adapter
-       │    ├─ internal/memory       预算 / 摘要
-       │    ├─ internal/tools      Registry + 四工具
-       │    └─ internal/session    MySQL Store
-       └─ internal/logging  JSONL
+       └─ internal/app       组合根：config → MySQL → stores → tools → engine
+            ├─ internal/config   Viper + .env
+            ├─ internal/db       MySQL 连接 + 幂等 schema
+            ├─ internal/agent    Engine / parser / prompt
+            │    ├─ internal/llm        DeepSeek adapter
+            │    ├─ internal/memory     预算 / 摘要
+            │    ├─ internal/tools      Registry + 四工具
+            │    └─ internal/session    MySQL Store
+            └─ internal/logging  JSONL
 ```
+
+启动时由 `internal/app.New` 打开一次 MySQL，并把 `*sql.DB` 注入 Session Store 与 Todo Store；连接或建表失败会直接返回错误，CLI 不会进入 REPL。
 
 一次 Run：
 
@@ -96,7 +99,7 @@ Copy-Item .env.example .env
 ### 4. 运行
 
 ```powershell
-go run ./cmd/goblin chat
+go run ./cmd chat
 ```
 
 新建 Session 后会打印 UUID：
@@ -109,7 +112,7 @@ Session: 7f2c3a5e-...
 恢复已存在的 Session：
 
 ```powershell
-go run ./cmd/goblin chat --session 7f2c3a5e-...
+go run ./cmd chat --session 7f2c3a5e-...
 ```
 
 不存在的 UUID 会直接报错，不会静默新建。
@@ -169,7 +172,7 @@ goblin help
 
 ### search（mock）
 
-本地 mock 文档库，返回标题、摘要、链接，并标注 `"source":"mock"`。不联网。
+本地 4 条固定 mock 数据，按关键词做简单包含匹配，返回标题、摘要、链接，并标注 `"source":"mock"`。不联网。
 
 ### read_docs
 

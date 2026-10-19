@@ -102,7 +102,7 @@ go test -tags=integration ./internal/agent -run TestRealDeepSeekToolLoop -v -tim
 
 ```powershell
 '请只用 calculator 工具计算 (128+72)*3，然后告诉我结果。' |
-  go run ./cmd/goblin chat --verbose
+  go run ./cmd chat --verbose
 ```
 
 实际输出：
@@ -116,7 +116,7 @@ Agent> (128+72)*3 = 600
 ### 5.2 追问
 
 ```powershell
-go run ./cmd/goblin run --session 9ab9c004-0d15-4944-9fc6-c35b174fab2d --verbose "那再加 100 呢？直接给结果。"
+go run ./cmd run --session 9ab9c004-0d15-4944-9fc6-c35b174fab2d --verbose "那再加 100 呢？直接给结果。"
 ```
 
 输出 `700`，说明上一轮计算与问题被带入上下文。
@@ -124,7 +124,7 @@ go run ./cmd/goblin run --session 9ab9c004-0d15-4944-9fc6-c35b174fab2d --verbose
 ### 5.3 read_docs + todo
 
 ```powershell
-go run ./cmd/goblin run --session 9ab9c004-0d15-4944-9fc6-c35b174fab2d --verbose `
+go run ./cmd run --session 9ab9c004-0d15-4944-9fc6-c35b174fab2d --verbose `
   "读一下 docs/spec.md 里 MySQL 的三张表，然后用 todo 记一条：补集成测试。"
 ```
 
@@ -141,8 +141,8 @@ go run ./cmd/goblin run --session 9ab9c004-0d15-4944-9fc6-c35b174fab2d --verbose
 ### 5.4 两个 Session 隔离
 
 ```powershell
-'请用 todo 记录：窗口二的待办。不要调用其他工具。' | go run ./cmd/goblin chat --verbose
-go run ./cmd/goblin sessions
+'请用 todo 记录：窗口二的待办。不要调用其他工具。' | go run ./cmd chat --verbose
+go run ./cmd sessions
 ```
 
 实际输出包含两个 Session：
@@ -157,7 +157,7 @@ go run ./cmd/goblin sessions
 ### 5.5 严格恢复
 
 ```powershell
-go run ./cmd/goblin chat --session 00000000-0000-4000-8000-000000000000
+go run ./cmd chat --session 00000000-0000-4000-8000-000000000000
 ```
 
 实际输出：
@@ -176,7 +176,7 @@ go run ./cmd/goblin chat --session 00000000-0000-4000-8000-000000000000
 $env:GOBLIN_AGENT_MAX_CONTEXT_TOKENS='1200'
 $env:GOBLIN_AGENT_RESERVE_OUTPUT_TOKENS='200'
 $env:GOBLIN_AGENT_COMPACT_RATIO='0.5'
-go run ./cmd/goblin run --session <uuid> "用一句话总结我们之前聊过的内容。"
+go run ./cmd run --session <uuid> "用一句话总结我们之前聊过的内容。"
 ```
 
 `goblin.log` 实际出现：
@@ -210,7 +210,7 @@ go run ./cmd/goblin run --session <uuid> "用一句话总结我们之前聊过�
 
 ```powershell
 @('用 calculator 计算 6*7，只回答数字。','/last','/quit') |
-  go run ./cmd/goblin chat --verbose
+  go run ./cmd chat --verbose
 ```
 
 实际输出包含同一 `trace_id` 和计算器调用，说明 `/last` 读取的是上次 Run 的 `Reply`，不是日志文件。
@@ -229,6 +229,15 @@ goblin-mysql  mysql:8.4  Up (healthy)  0.0.0.0:3306->3306/tcp
 ```
 
 启动时 `internal/db/schema.sql` 幂等建表；`sessions`、`messages`、`todos` 三张表可用。
+
+初始化失败时 CLI 直接退出：
+
+```powershell
+$env:GOBLIN_MYSQL_DSN = "goblin:123456@tcp(127.0.0.1:3307)/goblin?parseTime=true"
+go run ./cmd sessions
+```
+
+实际退出码 1，输出连接 MySQL 失败，不进入 REPL。MySQL 只由 `internal/app.New` 打开一次，并注入 Session Store 与 Todo Store。
 
 ## 8. 已知未覆盖
 

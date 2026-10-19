@@ -1,6 +1,6 @@
 # Goblin：最小可用 Agent 规格说明（v3）
 
-- 状态：已实现并验收（v3.5，2026-10-20）
+- 状态：已实现并验收（v3.6，2026-10-20）
 - 目标仓库：<https://github.com/Goblin-Master/goblin>
 - 语言：Go 1.25
 - 模型：DeepSeek `deepseek-chat`（OpenAI 兼容 Chat Completions）
@@ -98,46 +98,28 @@ Agent> keep_recent 默认 12；如果上一轮结果已被压缩，我会重新�
 ## 4. 架构
 
 ```text
-┌──────────────────────────────────────────────────────────────┐
-│ cmd/goblin                                                   │
-│ CLI：chat / run / sessions；UUID 生成；信号处理               │
-└───────────────────────────┬──────────────────────────────────┘
-                            │ Engine.Run(ctx, sessionID, input)
-┌───────────────────────────▼──────────────────────────────────┐
-│ internal/agent                                               │
-│ Engine：主循环、决策解析、工具编排、保存时机                   │
-│ parser：Response -> Decision{Thought, ToolCalls, Reply}      │
-│ prompt：system prompt                                        │
-└───────┬───────────────────┬───────────────────┬──────────────┘
-        │                   │                   │
-┌───────▼────────┐  ┌───────▼────────┐  ┌───────▼──────────────┐
-│ internal/llm   │  │ internal/tools │  │ internal/session     │
-│ DeepSeek HTTP  │  │ Registry + 4 工具│ │ MySQL Store + Model  │
-└───────┬────────┘  └───────┬────────┘  └───────┬──────────────┘
-        │                   │                   │
-        │           ┌───────▼────────┐  ┌───────▼──────────────┐
-        │           │ calculator     │  │ MySQL 8.4            │
-        │           │ search (mock)  │  │ sessions/messages/   │
-        │           │ read_docs      │  │ todos                │
-        │           │ todo           │  └──────────────────────┘
-        │           └───────┬────────┘
-        │                   │
-        │           ┌───────▼────────┐
-        │           │ Todo MySQL Store│
-        │           └────────────────┘
-        │
-┌───────▼───────────────────┐  ┌────────────────────────────┐
-│ internal/memory            │  │ internal/logging           │
-│ token 估算 / 摘要 / 裁剪   │  │ slog → goblin.log           │
-└───────────────────────────┘  └────────────────────────────┘
+cmd/main.go
+  └─ internal/cli                 Cobra 命令树
+       └─ internal/app           组合根（先初始化，失败即退出）
+            ├─ internal/config   Viper + .env + Validate
+            ├─ internal/db       Open MySQL 一次，执行 schema
+            ├─ internal/session  NewMySQLStore(*sql.DB)
+            ├─ internal/tools    NewMySQLTodoStore(*sql.DB) + 四工具
+            ├─ internal/agent    Engine / parser / prompt
+            │    ├─ internal/llm        DeepSeek adapter
+            │    └─ internal/memory     预算 / 摘要
+            └─ internal/logging  slog → goblin.log
 ```
+
+`internal/app.New` 是唯一组合根：MySQL 连接只打开一次，`*sql.DB` 直接注入 Session Store 与 Todo Store。连接或建表失败时返回错误，CLI 不进入 REPL。
 
 ### 4.1 目录
 
 ```text
 goblin/
-├── cmd/goblin/main.go
+├── cmd/main.go
 ├── internal/
+│   ├── app/               # 组合根：config → MySQL → stores → tools → engine
 │   ├── config/            # Viper、.env、校验
 │   ├── db/                # 打开 MySQL、连接池、执行内嵌 schema.sql
 │   ├── llm/               # ChatClient 接口、DeepSeek adapter
@@ -428,8 +410,8 @@ type Decision struct {
 ### 8.2 search（mock）
 
 - Schema：`query: string`（必填）、`limit: int`（1–5，默认 3）。
-- 内置 10–15 条 mock 文档，匹配标题/摘要，标题权重更高。
-- 无结果返回空数组；输出含 `"source":"mock"`。
+- 内置 4 条固定 mock 数据，按 query 词做简单包含匹配；不做评分或排序。
+- 无结果返回空数组；每条结果和顶层输出都含 `"source":"mock"`。
 
 ### 8.3 read_docs
 
@@ -631,7 +613,7 @@ API key 解析：`GOBLIN_LLM_API_KEY` > `DEEPSEEK_API_KEY` > 配置文件；优�
 
 ```powershell
 .\scripts\dev.ps1 up
-go run ./cmd/goblin chat
+go run ./cmd chat
 ```
 
 ---
@@ -757,7 +739,8 @@ go test -tags=integration ./... -run MySQL -v
 18. `docs: 添加 Mermaid 流程图与 ER 图`
 19. `docs: 补充 Viper 与 Cobra ADR`
 20. `refactor(logging): 合并日志与 trace`
-21. `refactor(tools): 简化工具实现`（本次）
+21. `refactor(tools): 简化工具实现`
+22. `refactor(app): 引入组合根并拍平 cmd`（本次）
 
 ---
 
