@@ -17,7 +17,7 @@ import (
 type Config struct {
 	LLM     LLMConfig     `mapstructure:"llm"`
 	Agent   AgentConfig   `mapstructure:"agent"`
-	Storage StorageConfig `mapstructure:"storage"`
+	MySQL   MySQLConfig   `mapstructure:"mysql"`
 	Logging LoggingConfig `mapstructure:"logging"`
 }
 
@@ -40,12 +40,13 @@ type AgentConfig struct {
 	SummaryMaxTokens   int           `mapstructure:"summary_max_tokens"`
 }
 
-type StorageConfig struct {
-	Dir string `mapstructure:"dir"`
+type MySQLConfig struct {
+	DSN string `mapstructure:"dsn"`
 }
 
 type LoggingConfig struct {
 	Level   string `mapstructure:"level"`
+	Dir     string `mapstructure:"dir"`
 	Verbose bool   `mapstructure:"verbose"`
 }
 
@@ -85,8 +86,9 @@ func Load(opts LoadOptions) (Config, error) {
 	v.SetDefault("agent.compact_ratio", 0.75)
 	v.SetDefault("agent.keep_recent", 12)
 	v.SetDefault("agent.summary_max_tokens", 800)
-	v.SetDefault("storage.dir", "./data")
+	v.SetDefault("mysql.dsn", "goblin:goblin_dev@tcp(127.0.0.1:3306)/goblin?parseTime=true&charset=utf8mb4&loc=Local")
 	v.SetDefault("logging.level", "info")
+	v.SetDefault("logging.dir", "./data/logs")
 	v.SetDefault("logging.verbose", false)
 
 	v.SetEnvPrefix("GOBLIN")
@@ -163,8 +165,11 @@ func (c Config) Validate() error {
 	if c.Agent.SummaryMaxTokens < 1 {
 		return errors.New("agent.summary_max_tokens 必须大于 0")
 	}
-	if strings.TrimSpace(c.Storage.Dir) == "" {
-		return errors.New("storage.dir 不能为空")
+	if strings.TrimSpace(c.MySQL.DSN) == "" {
+		return errors.New("mysql.dsn 不能为空")
+	}
+	if strings.TrimSpace(c.Logging.Dir) == "" {
+		return errors.New("logging.dir 不能为空")
 	}
 	return nil
 }

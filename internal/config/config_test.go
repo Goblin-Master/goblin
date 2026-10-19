@@ -79,8 +79,10 @@ llm:
   api_key: file-key
 agent:
   max_steps: 3
-storage:
-  dir: `+filepath.ToSlash(filepath.Join(dir, "data"))+`
+mysql:
+  dsn: "goblin:goblin_dev@tcp(127.0.0.1:3306)/goblin?parseTime=true"
+logging:
+  dir: `+filepath.ToSlash(filepath.Join(dir, "logs"))+`
 `), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +178,8 @@ func TestValidateRejectsBadValues(t *testing.T) {
 		{"budget", func(c *Config) { c.Agent.MaxContextTokens = 1000; c.Agent.ReserveOutputToken = 1000 }, "max_context_tokens"},
 		{"ratio", func(c *Config) { c.Agent.CompactRatio = 1 }, "compact_ratio"},
 		{"keep recent", func(c *Config) { c.Agent.KeepRecent = 2 }, "keep_recent"},
-		{"storage", func(c *Config) { c.Storage.Dir = " " }, "storage.dir"},
+		{"mysql dsn", func(c *Config) { c.MySQL.DSN = " " }, "mysql.dsn"},
+		{"logging dir", func(c *Config) { c.Logging.Dir = " " }, "logging.dir"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -209,6 +212,12 @@ func defaultConfigForTest() Config {
 			KeepRecent:         12,
 			SummaryMaxTokens:   800,
 		},
-		Storage: StorageConfig{Dir: "./data"},
+		MySQL: MySQLConfig{
+			DSN: "goblin:goblin_dev@tcp(127.0.0.1:3306)/goblin?parseTime=true",
+		},
+		Logging: LoggingConfig{
+			Level: "info",
+			Dir:   "./data/logs",
+		},
 	}
 }

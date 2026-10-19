@@ -15,9 +15,10 @@ agent:
   keep_recent: 12
   summary_max_tokens: 800
 
-storage:
-  dir: "./data"
+mysql:
+  dsn: "goblin:goblin_dev@tcp(127.0.0.1:3306)/goblin?parseTime=true&charset=utf8mb4&loc=Local"
 
 logging:
   level: "info"
+  dir: "./data/logs"
   verbose: false
