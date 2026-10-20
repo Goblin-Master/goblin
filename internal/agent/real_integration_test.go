@@ -16,6 +16,7 @@ import (
 	"github.com/Goblin-Master/goblin/internal/tools"
 )
 
+// go test -tags=integration ./internal/agent -run TestRealDeepSeekToolLoop -v
 func TestRealDeepSeekToolLoop(t *testing.T) {
 	cfg, err := config.Load(config.LoadOptions{ConfigPath: "../../config.yaml", EnvPath: "../../.env"})
 	if err != nil {
@@ -117,6 +118,7 @@ func (noopTodoStore) Remove(context.Context, string, string) ([]tools.Todo, erro
 	return nil, nil
 }
 
+// go test -tags=integration ./internal/agent -run TestRealDeepSeekMaxSteps -v
 func TestRealDeepSeekMaxSteps(t *testing.T) {
 	cfg, err := config.Load(config.LoadOptions{ConfigPath: "../../config.yaml", EnvPath: "../../.env"})
 	if err != nil {
@@ -132,12 +134,8 @@ func TestRealDeepSeekMaxSteps(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	readDocs, err := tools.NewReadDocs("../..", 64*1024)
-	if err != nil {
-		t.Fatal(err)
-	}
 	registry, err := tools.NewRegistryWithTimeout(10*time.Second,
-		tools.NewCalculator(), tools.NewSearch(), readDocs, tools.NewTodo(noopTodoStore{}))
+		tools.NewCalculator(), tools.NewTodo(noopTodoStore{}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +159,7 @@ func TestRealDeepSeekMaxSteps(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reply, err := engine.Run(context.Background(), sid, "docs/spec.md → 按其中公式计算 → 记成 todo")
+	reply, err := engine.Run(context.Background(), sid, "请先使用 calculator 计算 (128+72)*3，然后把结果记成 todo；不要直接回答。")
 	if err == nil {
 		t.Fatalf("expected max steps error, got reply: %q", reply.Text)
 	}

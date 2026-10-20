@@ -59,5 +59,5 @@ go test ./...
 ## 最近核对
 
 - 日期：2026-10-20
-- 对应提交：真实 max_steps 集成测试之后
+- 对应提交：简化真实 max_steps 用例之后
 - 结论：README、spec、testing、ADR、术语表与当前代码一致

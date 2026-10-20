@@ -92,7 +92,7 @@ go test -tags=integration ./internal/agent -run 'TestRealDeepSeekToolLoop|TestRe
 1. “请用计算器计算 (128+72)*3” -> 必须调用 `calculator`，最终包含 `600`；
 2. “再加 100” -> 同一 Session 的追问，最终包含 `700`；
 3. “读 README.md，告诉我项目使用什么数据库” -> 必须调用 `read_docs`，最终包含 `MySQL`；
-4. `TestRealDeepSeekMaxSteps`：`max_steps=2`，要求“docs/spec.md → 按其中公式计算 → 记成 todo”，必须返回“最大轮次”错误，且错误中不能出现 DSML 原文。
+4. `TestRealDeepSeekMaxSteps`：`max_steps=2`，要求“先用 calculator 计算 (128+72)*3，再把结果记成 todo”；只注册 calculator/todo 两个工具，不读文档，必须返回“最大轮次”错误，且错误中不能出现 DSML 原文。
 
 结果：PASS（约 4 秒）；max-steps 测试连续跑 3 次均 PASS。
 
