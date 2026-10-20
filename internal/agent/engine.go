@@ -166,6 +166,8 @@ func (e *Engine) Run(ctx context.Context, sessionID, input string) (Reply, error
 		}
 		if step < e.maxSteps {
 			req.Tools = e.tools.Definitions()
+		} else if len(req.Messages) > 0 {
+			req.Messages[0].Content += "\n\n这是最后一步：不要再请求工具，直接基于已有信息回答；如果信息不足，明确说明。"
 		}
 		log.Info("llm.request", "step", step, "messages", len(req.Messages), "tools", len(req.Tools))
 		started := time.Now()
@@ -186,6 +188,13 @@ func (e *Engine) Run(ctx context.Context, sessionID, input string) (Reply, error
 
 		decision, parseErr := Parse(resp)
 		if parseErr != nil {
+			if errors.Is(parseErr, ErrUnparsedToolMarkup) {
+				log.Warn("llm.unparsed_tool_call", "step", step)
+				if step == e.maxSteps {
+					return finish(reply, fmt.Errorf("达到最大轮次 %d：%w", e.maxSteps, parseErr))
+				}
+				continue
+			}
 			if emptyRetries == 0 && step < e.maxSteps {
 				emptyRetries++
 				continue

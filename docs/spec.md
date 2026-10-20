@@ -1,6 +1,6 @@
 # Goblin：最小可用 Agent 规格说明（v3）
 
-- 状态：已实现并验收（v3.7，2026-10-20）
+- 状态：已实现并验收（v3.8，2026-10-20）
 - 目标仓库：<https://github.com/Goblin-Master/goblin>
 - 语言：Go 1.25
 - 模型：DeepSeek `deepseek-chat`（OpenAI 兼容 Chat Completions）
@@ -383,9 +383,11 @@ type Decision struct {
 - 有 `reasoning_content`：作为 Thought。
 - 否则有 tool_calls：assistant content 作为“调用前意图”。
 - 无 tool_calls：content 作为 Reply。
+- 若 content 含 `<｜｜DSML｜｜`、`<|tool_calls` 等未解析的工具标记：**不能当作最终回答**，返回 `ErrUnparsedToolMarkup`。
+- 未解析工具标记出现在非最后一步：继续循环，不写入 assistant 消息；出现在最后一步：返回“达到最大轮次 N”。
 - 两者都空：返回明确错误。
 - `arguments` 保留原始字符串；Registry/工具负责 JSON 校验。
-- 不从普通文本正则提取 tool call，避免误判。
+- 不从普通文本正则提取 tool call，避免误判；只识别明显的原始工具标记并拒绝。
 
 ### 7.2 System Prompt
 
@@ -395,6 +397,7 @@ type Decision struct {
 - 工具报错时先读错误，避免重复相同参数超过两次。
 - 最终回答基于工具结果；mock 数据要标注。
 - 当前时间、summary、工具说明由程序注入。
+- 最后一步追加“不要再请求工具，直接基于已有信息回答”；并向模型隐藏 tools。
 
 ---
 
@@ -741,7 +744,8 @@ go test -tags=integration ./... -run MySQL -v
 20. `refactor(logging): 合并日志与 trace`
 21. `refactor(tools): 简化工具实现`
 22. `refactor(app): 引入组合根并拍平 cmd`
-23. `test(tools): 拆分 calculator 与 search 测试`（本次）
+23. `test(tools): 拆分 calculator 与 search 测试`
+24. `fix(agent): 拒绝未解析的工具调用标记`（本次）
 
 ---
 

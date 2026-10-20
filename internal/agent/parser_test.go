@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -53,5 +54,17 @@ func TestParseEmpty(t *testing.T) {
 	}
 	if _, err := Parse(llm.ChatResponse{ReasoningContent: "only thought"}); err == nil || !strings.Contains(err.Error(), "思考") {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestParseRejectsUnparsedToolMarkup(t *testing.T) {
+	_, err := Parse(llm.ChatResponse{
+		Content: "我先读文档。\n\n<｜｜DSML｜｜ calls>\n<｜｜DSML｜｜ invoke name=\"read_docs\">",
+	})
+	if !errors.Is(err, ErrUnparsedToolMarkup) {
+		t.Fatalf("error = %v, want ErrUnparsedToolMarkup", err)
+	}
+	if strings.Contains(err.Error(), "DSML") {
+		t.Fatalf("error leaked markup: %v", err)
 	}
 }

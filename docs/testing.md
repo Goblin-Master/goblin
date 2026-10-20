@@ -44,7 +44,8 @@ go vet ./...
 - Registry：重复注册、非法 Schema、未知工具、panic、超时、参数校验；
 - memory：token 估算、摘要注入、切点对齐、失败降级、工具结果截断；
 - Agent：直接回答、单/多工具、工具错误回喂、未知工具、max_steps、追问、缺失 Session、非法 UUID；
-- parser：纯回答、tool_calls、reasoning、空响应；
+- DSML 原始标记：非最后一步重试，最后一步返回最大轮次错误；
+- parser：纯回答、tool_calls、reasoning、空响应、未解析工具标记。
 - config：默认值、环境变量、`.env` 优先级、非法值；
 - CLI：Cobra 帮助、无参数帮助、未知命令、冲突 flag；
 - logging：JSONL 行数、`ts` / `level` / `event` / `session_id` / `trace_id` 字段、预览。
@@ -214,6 +215,26 @@ go run ./cmd run --session <uuid> "用一句话总结我们之前聊过的内容
 ```
 
 实际输出包含同一 `trace_id` 和计算器调用，说明 `/last` 读取的是上次 Run 的 `Reply`，不是日志文件。
+
+### 6.2 DSML 原始标记回归
+
+现象：`max_steps=2` 时，第 2 步没有 tools，模型把 `<｜｜DSML｜｜ calls>` 当作 content 返回，旧 parser 把它当成最终回答直接打印。
+
+日志证据：
+
+```json
+{"event":"llm.request","step":2,"tools":0}
+{"event":"llm.response","step":2,"finish_reason":"stop","content":"...<｜｜DSML｜｜ calls>..."}
+```
+
+修复：
+
+- 恢复 `max_steps` 默认值 8；
+- parser 识别 DSML/`<|tool_calls` 等原始标记，返回 `ErrUnparsedToolMarkup`，不写入 assistant 消息；
+- 非最后一步继续循环，最后一步返回“达到最大轮次 N”；
+- 最后一步向模型隐藏 tools，并追加“不要再请求工具”的 system 指令。
+
+新增测试：`TestParseRejectsUnparsedToolMarkup`、`TestRunMalformedToolMarkupAtMaxSteps`、`TestRunMalformedToolMarkupRetries`。
 
 ## 7. 数据库验收
 

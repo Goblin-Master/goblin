@@ -277,6 +277,41 @@ func TestRunMaxSteps(t *testing.T) {
 	if len(client.reqs[1].Tools) != 0 {
 		t.Fatal("final step must not expose tools")
 	}
+	if !strings.Contains(client.reqs[1].Messages[0].Content, "最后一步") {
+		t.Fatal("final step must ask the model to stop using tools")
+	}
+}
+
+func TestRunMalformedToolMarkupAtMaxSteps(t *testing.T) {
+	dsml := llm.ChatResponse{Content: "我先读文档。\n<｜｜DSML｜｜ calls>\n<｜｜DSML｜｜ invoke name=\"read_docs\">"}
+	engine, store, client, _, sid := newTestEngine(t, []llm.ChatResponse{dsml, dsml})
+	engine.maxSteps = 2
+	_, err := engine.Run(context.Background(), sid, "read docs")
+	if err == nil || !strings.Contains(err.Error(), "最大轮次") {
+		t.Fatalf("error = %v, want max steps", err)
+	}
+	if strings.Contains(err.Error(), "DSML") {
+		t.Fatalf("error leaked markup: %v", err)
+	}
+	if len(client.reqs) != 2 {
+		t.Fatalf("requests = %d", len(client.reqs))
+	}
+	sess, _ := store.Load(sid)
+	if len(sess.Messages) != 1 || sess.Messages[0].Role != llm.RoleUser {
+		t.Fatalf("messages = %+v", sess.Messages)
+	}
+}
+
+func TestRunMalformedToolMarkupRetries(t *testing.T) {
+	dsml := llm.ChatResponse{Content: "我先读文档。\n<｜｜DSML｜｜ calls>"}
+	engine, _, _, _, sid := newTestEngine(t, []llm.ChatResponse{dsml, {Content: "done"}})
+	reply, err := engine.Run(context.Background(), sid, "read docs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reply.Text != "done" {
+		t.Fatalf("reply = %+v", reply)
+	}
 }
 
 func TestRunFollowUp(t *testing.T) {
