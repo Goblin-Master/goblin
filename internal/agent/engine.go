@@ -163,11 +163,13 @@ func (e *Engine) Run(ctx context.Context, sessionID, input string) (Reply, error
 			Model:       e.model,
 			Messages:    e.memory.Build(sess, system),
 			Temperature: e.temperature,
+			Tools:       e.tools.Definitions(),
 		}
-		if step < e.maxSteps {
-			req.Tools = e.tools.Definitions()
-		} else if len(req.Messages) > 0 {
-			req.Messages[0].Content += "\n\n这是最后一步：不要再请求工具，直接基于已有信息回答；如果信息不足，明确说明。"
+		if step == e.maxSteps {
+			req.ToolChoice = "none"
+			if len(req.Messages) > 0 {
+				req.Messages[0].Content += "\n\n这是最后一步：不要再请求工具，直接基于已有信息回答；如果信息不足，明确说明。"
+			}
 		}
 		log.Info("llm.request", "step", step, "messages", len(req.Messages), "tools", len(req.Tools))
 		started := time.Now()

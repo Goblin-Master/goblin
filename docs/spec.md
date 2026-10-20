@@ -1,6 +1,6 @@
 # Goblin：最小可用 Agent 规格说明（v3）
 
-- 状态：已实现并验收（v3.8，2026-10-20）
+- 状态：已实现并验收（v3.9，2026-10-20）
 - 目标仓库：<https://github.com/Goblin-Master/goblin>
 - 语言：Go 1.25
 - 模型：DeepSeek `deepseek-chat`（OpenAI 兼容 Chat Completions）
@@ -315,7 +315,7 @@ erDiagram
 2. 追加 user message；若标题为空，取前 30 个字符
 3. for step = 1 .. max_steps:
    a. MaybeCompact：估算 Build 后 token，超阈值则摘要旧消息
-   b. 调用 LLM；非最后一步带工具 Schema，最后一步不带工具
+   b. 调用 LLM；非最后一步带工具 Schema，最后一步保留 Schema 但 `tool_choice=none`
    c. parser -> Decision{Thought, ToolCalls, Reply}
    d. 无 tool_calls 且有 Reply：追加 assistant，Save，返回
    e. 有 tool_calls：追加 assistant(tool_calls + 可见意图)
@@ -363,7 +363,7 @@ sequenceDiagram
 
 约定：
 
-- `max_steps` 默认 8，限制单次 Run 的 LLM 请求数；最后一步不允许工具调用。
+- `max_steps` 默认 8，限制单次 Run 的 LLM 请求数；最后一步不允许工具调用（`tool_choice=none`）。
 - 工具错误作为 `role=tool` 结果回喂，不让 Go error 冒泡到 CLI。
 - 同一轮多个 tool_calls 全部执行，按返回顺序。
 - Save 在 Turn 结束时执行；工具执行过程中不写半成品 Session。
@@ -397,7 +397,7 @@ type Decision struct {
 - 工具报错时先读错误，避免重复相同参数超过两次。
 - 最终回答基于工具结果；mock 数据要标注。
 - 当前时间、summary、工具说明由程序注入。
-- 最后一步追加“不要再请求工具，直接基于已有信息回答”；并向模型隐藏 tools。
+- 最后一步追加“不要再请求工具，直接基于已有信息回答”；工具 Schema 仍发送，但 `tool_choice=none`。
 
 ---
 
@@ -632,7 +632,7 @@ go run ./cmd chat
 | 空 content 且无 tool_calls | 重试一次，仍空则报错 |
 | 工具参数非法/未知工具 | 结构化错误回喂模型 |
 | 工具 panic/超时 | recover/超时结果回喂模型 |
-| max_steps 用尽 | 最后一步无工具收尾；失败则明确报错 |
+| max_steps 用尽 | 最后一步 `tool_choice=none` 收尾；失败则明确报错 |
 | Session 不存在 | 严格报错，建议 `goblin sessions` 或 `goblin chat` |
 | MySQL 写失败 | 返回错误；事务回滚 |
 | 摘要失败 | 截断降级，记录 warning |
@@ -745,7 +745,8 @@ go test -tags=integration ./... -run MySQL -v
 21. `refactor(tools): 简化工具实现`
 22. `refactor(app): 引入组合根并拍平 cmd`
 23. `test(tools): 拆分 calculator 与 search 测试`
-24. `fix(agent): 拒绝未解析的工具调用标记`（本次）
+24. `fix(agent): 拒绝未解析的工具调用标记`
+25. `fix(agent): 最后一步强制 tool_choice=none`（本次）
 
 ---
 

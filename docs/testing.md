@@ -232,7 +232,8 @@ go run ./cmd run --session <uuid> "用一句话总结我们之前聊过的内容
 - 恢复 `max_steps` 默认值 8；
 - parser 识别 DSML/`<|tool_calls` 等原始标记，返回 `ErrUnparsedToolMarkup`，不写入 assistant 消息；
 - 非最后一步继续循环，最后一步返回“达到最大轮次 N”；
-- 最后一步向模型隐藏 tools，并追加“不要再请求工具”的 system 指令。
+- 最后一步仍发送 tools Schema，但使用 `tool_choice=none`，并追加“不要再请求工具”的 system 指令；
+- 官方 issue 也报告了 tools 存在时偶发 DSML，因此 parser guard 仍然保留：最后一步返回最大轮次错误，而不是打印原始标记。
 
 新增测试：`TestParseRejectsUnparsedToolMarkup`、`TestRunMalformedToolMarkupAtMaxSteps`、`TestRunMalformedToolMarkupRetries`。
 

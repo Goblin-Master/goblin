@@ -59,7 +59,7 @@ flowchart TD
     N --> D
 ```
 
-`max_steps` 包含最后一次 LLM 请求；最后一步不再向模型暴露工具，要求它收尾。
+`max_steps` 包含最后一次 LLM 请求；最后一步保留工具 Schema，但强制 `tool_choice: "none"`，要求模型收尾。
 
 ## 快速开始
 

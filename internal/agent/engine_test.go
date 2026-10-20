@@ -274,8 +274,11 @@ func TestRunMaxSteps(t *testing.T) {
 	if len(client.reqs) != 2 {
 		t.Fatalf("requests = %d", len(client.reqs))
 	}
-	if len(client.reqs[1].Tools) != 0 {
-		t.Fatal("final step must not expose tools")
+	if len(client.reqs[1].Tools) == 0 {
+		t.Fatal("final step should keep tools schema with tool_choice=none")
+	}
+	if client.reqs[1].ToolChoice != "none" {
+		t.Fatalf("tool_choice = %q, want none", client.reqs[1].ToolChoice)
 	}
 	if !strings.Contains(client.reqs[1].Messages[0].Content, "最后一步") {
 		t.Fatal("final step must ask the model to stop using tools")
