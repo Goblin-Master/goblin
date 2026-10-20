@@ -15,7 +15,7 @@
 | `memory` + `ChatClient` | 预算、切点、摘要失败降级 | fake summarizer |
 | `logging` | JSONL 字段、`trace_id`、预览 | 临时文件 |
 | DeepSeek HTTP | 请求格式、tool_calls、重试、错误 | `httptest.Server` |
-| 真实 DeepSeek | 计算、追问、read_docs | 真实 API |
+| 真实 DeepSeek | 计算、追问、read_docs、max_steps | 真实 API |
 | MySQL | 事务、JSON 列、级联、UUID | 真实容器 |
 
 ## 2. 默认自动化测试
@@ -84,16 +84,17 @@ go test -tags=integration ./internal/session ./internal/tools -v -timeout 60s
 ## 4. 真实 DeepSeek 集成测试
 
 ```powershell
-go test -tags=integration ./internal/agent -run TestRealDeepSeekToolLoop -v -timeout 180s
+go test -tags=integration ./internal/agent -run 'TestRealDeepSeekToolLoop|TestRealDeepSeekMaxSteps' -v -timeout 180s
 ```
 
 测试内容：
 
 1. “请用计算器计算 (128+72)*3” -> 必须调用 `calculator`，最终包含 `600`；
 2. “再加 100” -> 同一 Session 的追问，最终包含 `700`；
-3. “读 README.md，告诉我项目使用什么数据库” -> 必须调用 `read_docs`，最终包含 `MySQL`。
+3. “读 README.md，告诉我项目使用什么数据库” -> 必须调用 `read_docs`，最终包含 `MySQL`；
+4. `TestRealDeepSeekMaxSteps`：`max_steps=2`，要求“docs/spec.md → 按其中公式计算 → 记成 todo”，必须返回“最大轮次”错误，且错误中不能出现 DSML 原文。
 
-结果：PASS（约 4 秒）。
+结果：PASS（约 4 秒）；max-steps 测试连续跑 3 次均 PASS。
 
 真实 API 不输出 key；`.env` 只存在于本地。
 

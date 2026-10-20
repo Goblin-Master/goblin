@@ -101,3 +101,74 @@ func TestRealDeepSeekToolLoop(t *testing.T) {
 		t.Fatalf("read_docs not called: %+v", third.ToolCalls)
 	}
 }
+
+type noopTodoStore struct{}
+
+func (noopTodoStore) List(context.Context, string) ([]tools.Todo, error) {
+	return nil, nil
+}
+func (noopTodoStore) Add(context.Context, string, string) ([]tools.Todo, error) {
+	return nil, nil
+}
+func (noopTodoStore) Complete(context.Context, string, string) ([]tools.Todo, error) {
+	return nil, nil
+}
+func (noopTodoStore) Remove(context.Context, string, string) ([]tools.Todo, error) {
+	return nil, nil
+}
+
+func TestRealDeepSeekMaxSteps(t *testing.T) {
+	cfg, err := config.Load(config.LoadOptions{ConfigPath: "../../config.yaml", EnvPath: "../../.env"})
+	if err != nil {
+		t.Skipf("real API test skipped: %v", err)
+	}
+	if strings.TrimSpace(os.Getenv("DEEPSEEK_API_KEY")) == "" && strings.TrimSpace(os.Getenv("GOBLIN_LLM_API_KEY")) == "" {
+		t.Skip("no API key")
+	}
+	client, err := llm.NewDeepSeek(llm.Options{
+		BaseURL: cfg.LLM.BaseURL, APIKey: cfg.LLM.APIKey, Model: cfg.LLM.Model,
+		Timeout: cfg.LLM.Timeout, MaxRetries: cfg.LLM.MaxRetries, Temperature: 0.2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	readDocs, err := tools.NewReadDocs("../..", 64*1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry, err := tools.NewRegistryWithTimeout(10*time.Second,
+		tools.NewCalculator(), tools.NewSearch(), readDocs, tools.NewTodo(noopTodoStore{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	memoryManager, err := memory.New(memory.Options{
+		Client: client, Model: cfg.LLM.Model,
+		MaxContextTokens: 32000, ReserveOutputTokens: 2048,
+		KeepRecent: 12, SummaryMaxTokens: 800, CompactRatio: 0.75,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := newFakeStore()
+	sid := session.NewID()
+	if _, err := store.Create(sid); err != nil {
+		t.Fatal(err)
+	}
+	engine, err := New(Options{
+		Client: client, Store: store, Tools: registry, Memory: memoryManager,
+		Model: cfg.LLM.Model, MaxSteps: 2, Temperature: 0.2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reply, err := engine.Run(context.Background(), sid, "docs/spec.md → 按其中公式计算 → 记成 todo")
+	if err == nil {
+		t.Fatalf("expected max steps error, got reply: %q", reply.Text)
+	}
+	if !strings.Contains(err.Error(), "最大轮次") {
+		t.Fatalf("error = %v, want max steps", err)
+	}
+	if strings.Contains(err.Error(), "DSML") {
+		t.Fatalf("error leaked raw markup: %v", err)
+	}
+}
