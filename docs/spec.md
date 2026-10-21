@@ -126,7 +126,7 @@ goblin/
 │   ├── agent/             # Engine、parser、prompt
 │   ├── tools/             # Tool、Registry、四工具
 │   ├── session/           # 模型、MySQL Session Store
-│   ├── memory/            # token 估算、Build、MaybeCompact
+│   ├── memory/            # token 估算、Build、AutoCompact / Compact
 │   ├── logging/           # slog、JSONL、事件与预览
 │   └── cli/               # Cobra 命令树、REPL、one-shot
 ├── docker-compose.yml     # MySQL 8.4
@@ -173,7 +173,8 @@ type Tool interface {
 
 // Memory 接缝：构建发送上下文、压缩旧消息。
 func (m *Manager) Build(s *Session, system string) []llm.Message
-func (m *Manager) MaybeCompact(ctx context.Context, s *Session, system string) (bool, error)
+func (m *Manager) AutoCompact(ctx context.Context, s *Session, system string) (Report, error)
+func (m *Manager) Compact(ctx context.Context, s *Session, system string) (Report, error)
 ```
 
 `Store` 的 MySQL 实现隐藏连接、事务、JSON 列和 schema；Agent 不直接执行 SQL。
@@ -314,7 +315,7 @@ erDiagram
 1. 校验 UUID；Load Session；不存在返回错误（不自动创建）
 2. 追加 user message；若标题为空，取前 30 个字符
 3. for step = 1 .. max_steps:
-   a. MaybeCompact：估算 Build 后 token，超阈值则摘要旧消息
+   a. AutoCompact：估算 Build 后 token，超阈值则摘要旧消息
    b. 调用 LLM；非最后一步带工具 Schema，最后一步保留 Schema 但 `tool_choice=none`
    c. parser -> Decision{Thought, ToolCalls, Reply}
    d. 无 tool_calls 且有 Reply：追加 assistant，Save，返回
@@ -343,7 +344,7 @@ sequenceDiagram
     DB-->>E: messages / summary / summary_up_to
 
     loop 每个 Step，直到最终回答或 max_steps
-        E->>M: MaybeCompact + Build
+        E->>M: AutoCompact + Build
         M-->>E: system + summary + recent messages
         E->>L: Chat(messages, tools)
         L-->>E: content / tool_calls
@@ -467,7 +468,7 @@ goblin sessions                     # 列出 id / title / updated_at / message_c
 | `/sessions` | 列出 Session |
 | `/switch <uuid>` | 严格切换到已存在 Session |
 | `/history [n]` | 最近 n 条消息（默认 10） |
-| `/compact` | 手动压缩 |
+| `/compact` | 手动压缩（忽略预算阈值，压到消息末尾） |
 | `/last` | 上次 Run 的 trace_id 与工具调用 |
 | `/quit` / `/exit` | 退出 |
 
@@ -514,10 +515,14 @@ goblin sessions                     # 列出 id / title / updated_at / message_c
 
 - 输入预算 = `max_context_tokens - reserve_output_tokens`。
 - token 估算：CJK 约 1 token，ASCII 约 0.25 token，加消息固定开销；不追求精确。
-- 超过 `输入预算 * compact_ratio` 时压缩。
-- 压缩：旧 summary + `messages[summary_up_to:cutoff]` 交给 LLM，生成新 summary；`summary_up_to = cutoff`。
-- 切点必须对齐到 user message，不能拆散 assistant(tool_calls) 与对应 tool 结果。
-- 摘要失败：保留旧 summary，注入“更早内容已省略”，不中断。
+- **Auto Compaction**：Run 的每个 Step 前检查，超过 `输入预算 * compact_ratio` 时压缩；最多 2 次尝试；切点保留最近 `keep_recent` 条并对齐到 user message。
+- **Manual Compaction**：`/compact` 忽略预算阈值，从 Summary Cursor 折叠到消息末尾；按摘要器输入上限分块，单次最多 8 次摘要调用；到上限仍未压完返回 `partial`，再执行一次继续。
+- 两种压缩共用同一摘要器与 `summary_max_tokens`：旧 summary + `messages[summary_up_to:cutoff]` 交给 LLM 生成新 summary；`summary_up_to = cutoff`。
+- 切点必须对齐到 user message，不能拆散 assistant(tool_calls) 与对应 tool 结果；单个 Turn 超过摘要器输入上限时该块截断后摘要。
+- 摘要失败：Auto Compaction 保留旧 summary、注入“更早内容已省略”并标记 `degraded`，不中断；Manual Compaction 不推进游标、不修改 summary，返回 `summary_failed`，此前成功的块保留并保存。
+- Summary Cursor 已到消息末尾时，Manual Compaction 返回 `nothing_to_compact`，不发起摘要调用。
+- 压缩结果用 `Report` 表达：`Before` / `After` / `Summarized` / `Calls` / `Reason` / `Degraded`；`Reason` 取值为 `compacted`、`under_budget`、`nothing_to_compact`、`no_boundary`、`partial`、`still_exceeded`、`summary_failed`。
+- 自动压缩日志：成功写 `context.compact`（含 `summarized` / `calls` / `reason` / `degraded`）；超预算但无进展写 `context.compact_skip`（含 `tokens_before` / `target` / `reason`）。
 - 单条工具结果超过 16KB 时截断后发送；MySQL 中保留完整内容，日志只留 2KB 预览。
 - `reasoning_content` 不回传模型；只用于展示/日志。
 

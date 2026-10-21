@@ -17,7 +17,7 @@ Goblin 不依赖 LangGraph、OpenHands、OpenClaw、PI 等 Agent 框架。主循
 - Agent 主循环：工具执行、结果回填、错误回喂、最大轮次。
 - Session：UUID、严格恢复、MySQL 持久化、两个窗口互相隔离。
 - Memory：最近消息 + 会话摘要 + MySQL 中的待办。
-- 上下文压缩：超预算用 LLM 摘要，失败则截断降级。
+- 上下文压缩：自动按预算触发，`/compact` 可手动压到消息末尾；摘要失败自动降级。
 - 结构化日志：JSONL 写入 `goblin.log`，记录 LLM 请求、工具调用、压缩和错误；每条带 `session_id`、`trace_id`。
 - 测试：默认单测不依赖 Docker；MySQL 与真实 DeepSeek 使用 `integration` tag。
 
@@ -45,7 +45,7 @@ cmd
 flowchart TD
     A["用户输入"] --> B["加载 Session<br/>更新 user message"]
     B --> C["step = 1"]
-    C --> D["MaybeCompact<br/>预算检查 / 摘要"]
+    C --> D["AutoCompact<br/>预算检查 / 摘要"]
     D --> E["Build context<br/>system + summary + recent"]
     E --> F["调用 DeepSeek"]
     F --> G{"返回 tool_calls?"}
@@ -136,7 +136,7 @@ goblin help
 | `/sessions` | 列出会话 |
 | `/switch <uuid>` | 切换 |
 | `/history [n]` | 最近 n 条消息 |
-| `/compact` | 手动压缩 |
+| `/compact` | 手动压缩（忽略预算阈值，压到消息末尾） |
 | `/last` | 上次运行的 trace_id 与工具调用 |
 | `/quit` | 退出 |
 
@@ -155,8 +155,8 @@ goblin help
 | `agent.max_steps` | `8` | 单次 Run 最大 LLM 请求数 |
 | `agent.max_context_tokens` | `32000` | 上下文预算 |
 | `agent.reserve_output_tokens` | `2048` | 为输出预留 |
-| `agent.compact_ratio` | `0.75` | 触发压缩的比例 |
-| `agent.keep_recent` | `12` | 压缩后保留的最近消息 |
+| `agent.compact_ratio` | `0.75` | 自动压缩触发比例 |
+| `agent.keep_recent` | `12` | 自动压缩保留的最近消息 |
 | `agent.summary_max_tokens` | `800` | 摘要上限 |
 | `mysql.dsn` | 本地 goblin 库 | MySQL 连接串 |
 | `logging.dir` | `./data/logs` | JSONL 日志目录 |
@@ -196,13 +196,25 @@ goblin help
 | 待办 | MySQL `todos` | 模型主动调用 `todo` 时 |
 | reasoning_content | 不进入上下文 | 仅展示/日志 |
 
-压缩规则：
+压缩分两种，共用同一摘要器和 `summary_max_tokens`：
 
-1. `Build` 估算 token 超过 `输入预算 * compact_ratio` 时触发；
-2. 切点对齐到 user message，不拆散 assistant tool_calls 与 tool result；
-3. 旧 summary + 被切掉的消息交给 LLM 生成新 summary；
-4. summary 写入 MySQL `sessions.summary`，`summary_up_to` 记录覆盖到哪条消息；
-5. 摘要失败则保留旧摘要并标注“更早内容已省略”，不阻断对话；
+**Auto Compaction**（自动）：
+
+1. `Build` 估算 token 超过 `输入预算 * compact_ratio` 时触发，最多连续 2 次；
+2. 保留最近 `keep_recent` 条，切点对齐到 user message，不拆散 assistant tool_calls 与 tool result；
+3. 摘要失败保留旧摘要并标注“更早内容已省略”，不阻断对话；
+4. 超预算但压不动写 `context.compact_skip`，压完仍超记录 `still_exceeded`。
+
+**Manual Compaction**（`/compact`）：
+
+1. 忽略预算阈值，从 `summary_up_to` 压到消息末尾；游标已在末尾时返回“没有可压缩的内容”；
+2. 按摘要器输入上限分块，单次最多 8 次摘要调用；到上限返回已压/剩余条数，再执行一次继续；
+3. 摘要失败不推进游标、不改摘要，返回失败原因；此前成功的块保留并保存；
+4. 不删除 MySQL 中的消息，只推进游标，`/history` 仍可回看原文。
+
+公共规则：
+
+5. 旧 summary + 被切掉的消息交给 LLM 生成新 summary；summary 写入 MySQL `sessions.summary`，`summary_up_to` 记录覆盖到哪条消息；
 6. `reasoning_content` 不回传模型；单条工具结果超过 16KB 时截断发送，MySQL 保留完整内容。
 
 ```mermaid

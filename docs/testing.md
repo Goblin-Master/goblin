@@ -172,7 +172,7 @@ go run ./cmd chat --session 00000000-0000-4000-8000-000000000000
 
 ### 5.6 上下文压缩
 
-用低预算环境变量对同一 Session 触发压缩：
+**自动压缩**：用低预算环境变量对同一 Session 触发压缩：
 
 ```powershell
 $env:GOBLIN_AGENT_MAX_CONTEXT_TOKENS='1200'
@@ -184,8 +184,25 @@ go run ./cmd run --session <uuid> "用一句话总结我们之前聊过的内容
 `goblin.log` 实际出现：
 
 ```json
-{"ts":"...","level":"INFO","event":"context.compact","session_id":"...","trace_id":"...","tokens_before":19809,"tokens_after":308,"summary_up_to":17}
+{"ts":"...","level":"INFO","event":"context.compact","session_id":"...","trace_id":"...","tokens_before":19809,"tokens_after":308,"summarized":17,"calls":1,"reason":"compacted","degraded":false,"summary_up_to":17}
 ```
+
+**手动压缩**：在同一 Session 执行 `/compact`，忽略预算阈值：
+
+```text
+你> /compact
+正在压缩上下文…
+已压缩：17 条消息（估算 1200 → 308 token，摘要调用 1 次）。
+```
+
+再次执行 `/compact`：
+
+```text
+你> /compact
+没有可压缩的内容：17/17 条消息已在摘要中。
+```
+
+历史超过单次 8 块上限时输出 `已压缩：N 条，还剩 M 条…`；摘要失败时输出 `压缩失败：摘要调用失败: ...`（或 `本次未推进，会话未改动。`），REPL 不退出。
 
 再次追问“我刚才提到的三件事分别是什么？”，回答仍能复述 calculator、read_docs、todo 三件事，说明 summary 已被召回。
 
@@ -196,6 +213,7 @@ go run ./cmd run --session <uuid> "用一句话总结我们之前聊过的内容
 - `run.start`
 - `llm.request` / `llm.response`（usage、request_id、duration）
 - `tool.call` / `tool.result`（参数/结果预览、耗时、ok）
+- `context.compact` / `context.compact_skip`（压缩原因与前后 token）
 - `run.end`
 
 示例：

@@ -13,6 +13,7 @@ import (
 	"github.com/Goblin-Master/goblin/internal/agent"
 	"github.com/Goblin-Master/goblin/internal/app"
 	"github.com/Goblin-Master/goblin/internal/logging"
+	"github.com/Goblin-Master/goblin/internal/memory"
 	"github.com/Goblin-Master/goblin/internal/session"
 	"github.com/spf13/cobra"
 )
@@ -262,15 +263,35 @@ func (r *runner) command(ctx context.Context, id, input string, out io.Writer, l
 			fmt.Fprintf(out, "[%s] %s\n", msg.Role, logging.Preview(msg.Content, 300))
 		}
 	case "/compact":
-		compacted, err := r.Engine.Compact(ctx, id)
+		sess, err := r.Store.Load(id)
 		if err != nil {
 			return false, "", err
 		}
-		if compacted {
-			fmt.Fprintln(out, "已压缩上下文。")
-		} else {
-			fmt.Fprintln(out, "当前上下文不需要压缩。")
+		total := len(sess.Messages)
+		cursor := sess.SummaryUpTo
+		if cursor < 0 {
+			cursor = 0
 		}
+		if cursor > total {
+			cursor = total
+		}
+		if cursor < total {
+			fmt.Fprintln(out, "正在压缩上下文…")
+		}
+		report, err := r.Engine.Compact(ctx, id)
+		if err != nil {
+			fmt.Fprintf(out, "压缩失败：%v\n", err)
+			switch {
+			case report.Summarized == 0:
+				fmt.Fprintln(out, "本次未推进，会话未改动。")
+			case compactionSaved(r.Store, id, cursor):
+				fmt.Fprintf(out, "本次已压缩的 %d 条消息已保存，可重试 /compact。\n", report.Summarized)
+			default:
+				fmt.Fprintln(out, "已压缩的部分未能保存，请重试 /compact。")
+			}
+			break
+		}
+		fmt.Fprint(out, formatCompactReport(report, total, cursor))
 	case "/last":
 		if last.TraceID == "" {
 			fmt.Fprintln(out, "还没有运行记录。")
@@ -340,4 +361,31 @@ func runSessions(opts *rootOptions, stdout io.Writer) error {
 	defer application.Close()
 	r := &runner{App: application}
 	return r.listSessions(stdout)
+}
+
+func formatCompactReport(r memory.Report, total, cursor int) string {
+	switch r.Reason {
+	case memory.ReasonCompacted:
+		return fmt.Sprintf("已压缩：%d 条消息（估算 %d → %d token，摘要调用 %d 次）。\n",
+			r.Summarized, r.Before, r.After, r.Calls)
+	case memory.ReasonNothingToCompact:
+		return fmt.Sprintf("没有可压缩的内容：%d/%d 条消息已在摘要中。\n", total, total)
+	case memory.ReasonPartial:
+		remaining := total - cursor - r.Summarized
+		if remaining < 0 {
+			remaining = 0
+		}
+		return fmt.Sprintf("已压缩：%d 条，还剩 %d 条（达到每次 %d 块上限）；再次执行 /compact 继续。\n",
+			r.Summarized, remaining, r.Calls)
+	case memory.ReasonNoBoundary:
+		return fmt.Sprintf("无法压缩：剩余 %d 条消息中找不到可安全切分的 user 边界。\n", total-cursor)
+	}
+	return fmt.Sprintf("未压缩：%s。\n", r.Reason)
+}
+
+// compactionSaved reports whether the store's summary cursor moved past the
+// value observed before /compact, so the CLI does not claim unsaved progress.
+func compactionSaved(store session.Store, id string, cursor int) bool {
+	sess, err := store.Load(id)
+	return err == nil && sess.SummaryUpTo > cursor
 }

@@ -3,15 +3,23 @@ package memory
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/Goblin-Master/goblin/internal/llm"
 	"github.com/Goblin-Master/goblin/internal/session"
 )
 
-const toolResultLimit = 16 * 1024
+const (
+	toolResultLimit = 16 * 1024
+	// manualCompactMaxCalls caps one manual /compact invocation so a very long
+	// history cannot issue an unbounded number of summarizer calls. Remaining
+	// messages are reported as partial progress and the next /compact resumes.
+	manualCompactMaxCalls = 8
+)
 
 type Options struct {
 	Client              llm.ChatClient
@@ -64,6 +72,56 @@ func (m *Manager) InputBudget() int {
 	return m.maxContext - m.reserveOutput
 }
 
+// TargetTokens is the estimated token count above which auto compaction runs.
+func (m *Manager) TargetTokens() int {
+	return m.target()
+}
+
+// Reason explains why a compaction run did or did not make progress.
+type Reason int
+
+const (
+	ReasonUnknown Reason = iota
+	ReasonCompacted
+	ReasonUnderBudget
+	ReasonNothingToCompact
+	ReasonNoBoundary
+	ReasonPartial
+	ReasonStillExceeded
+	ReasonSummaryFailed
+)
+
+func (r Reason) String() string {
+	switch r {
+	case ReasonCompacted:
+		return "compacted"
+	case ReasonUnderBudget:
+		return "under_budget"
+	case ReasonNothingToCompact:
+		return "nothing_to_compact"
+	case ReasonNoBoundary:
+		return "no_boundary"
+	case ReasonPartial:
+		return "partial"
+	case ReasonStillExceeded:
+		return "still_exceeded"
+	case ReasonSummaryFailed:
+		return "summary_failed"
+	default:
+		return "unknown"
+	}
+}
+
+// Report describes the outcome of one auto or manual compaction run.
+type Report struct {
+	Before     int
+	After      int
+	Summarized int
+	Calls      int
+	Reason     Reason
+	Degraded   bool
+}
+
 func (m *Manager) Build(s *session.Session, system string) []llm.Message {
 	if s == nil {
 		return nil
@@ -73,49 +131,126 @@ func (m *Manager) Build(s *session.Session, system string) []llm.Message {
 	}
 	out := make([]llm.Message, 0, len(s.Messages)+1)
 	out = append(out, llm.Message{Role: llm.RoleSystem, Content: system})
-	start := s.SummaryUpTo
-	if start < 0 {
-		start = 0
-	}
-	if start > len(s.Messages) {
-		start = len(s.Messages)
-	}
-	for _, msg := range s.Messages[start:] {
+	for _, msg := range s.Messages[m.cursor(s):] {
 		out = append(out, toLLMMessage(msg))
 	}
 	return out
 }
 
-func (m *Manager) MaybeCompact(ctx context.Context, s *session.Session, system string) (bool, error) {
+// AutoCompact compacts when the built context exceeds the configured budget.
+// It makes at most two attempts and degrades to a fallback summary when the
+// summarizer fails, so a Run is never blocked by compaction.
+func (m *Manager) AutoCompact(ctx context.Context, s *session.Session, system string) (Report, error) {
 	if s == nil {
-		return false, errors.New("session 不能为空")
+		return Report{Reason: ReasonUnknown}, errors.New("session 不能为空")
 	}
-	compacted := false
+	report := Report{Before: EstimateTokens(m.Build(s, system))}
 	for attempt := 0; attempt < 2; attempt++ {
 		if EstimateTokens(m.Build(s, system)) <= m.target() {
-			return compacted, nil
+			break
 		}
-		cutoff := m.cutoff(s)
-		if cutoff <= s.SummaryUpTo || cutoff >= len(s.Messages) {
-			return compacted, nil
+		cutoff := m.autoCutoff(s)
+		if cutoff <= m.cursor(s) || cutoff >= len(s.Messages) {
+			if report.Summarized == 0 {
+				if m.cursor(s) >= len(s.Messages) {
+					report.Reason = ReasonNothingToCompact
+				} else {
+					report.Reason = ReasonNoBoundary
+				}
+				report.After = EstimateTokens(m.Build(s, system))
+				return report, nil
+			}
+			break
 		}
-		if err := m.compactOnce(ctx, s, cutoff); err != nil {
-			return compacted, err
+		start := m.cursor(s)
+		degraded, err := m.compactOnce(ctx, s, cutoff, compactLenient)
+		if err != nil {
+			report.Reason = ReasonSummaryFailed
+			report.After = EstimateTokens(m.Build(s, system))
+			return report, err
 		}
-		compacted = true
+		report.Summarized += cutoff - start
+		report.Calls++
+		report.Degraded = report.Degraded || degraded
 	}
-	return compacted, nil
+	report.After = EstimateTokens(m.Build(s, system))
+	switch {
+	case report.Summarized == 0 && report.After <= m.target():
+		report.Reason = ReasonUnderBudget
+	case report.Summarized == 0:
+		report.Reason = ReasonNoBoundary
+	case report.After > m.target():
+		report.Reason = ReasonStillExceeded
+	default:
+		report.Reason = ReasonCompacted
+	}
+	return report, nil
+}
+
+// Compact folds messages into the summary regardless of the token budget. It
+// stops only when the summary cursor reaches the end of the message list, the
+// per-invocation chunk cap is hit, or the summarizer fails. A failed chunk is
+// not applied, so the session keeps the last good summary.
+func (m *Manager) Compact(ctx context.Context, s *session.Session, system string) (Report, error) {
+	if s == nil {
+		return Report{Reason: ReasonUnknown}, errors.New("session 不能为空")
+	}
+	report := Report{Before: EstimateTokens(m.Build(s, system))}
+	start := m.cursor(s)
+	if start >= len(s.Messages) {
+		report.After = report.Before
+		report.Reason = ReasonNothingToCompact
+		return report, nil
+	}
+	limit := m.transcriptLimit()
+	for report.Calls < manualCompactMaxCalls && start < len(s.Messages) {
+		cutoff := m.manualCutoff(s, start, limit)
+		degraded, err := m.compactOnce(ctx, s, cutoff, compactStrict)
+		report.Calls++
+		if err != nil {
+			report.Reason = ReasonSummaryFailed
+			report.After = EstimateTokens(m.Build(s, system))
+			if report.Calls == 1 {
+				return report, fmt.Errorf("摘要调用失败: %w", err)
+			}
+			return report, fmt.Errorf("摘要第 %d 块失败: %w", report.Calls, err)
+		}
+		if degraded {
+			report.Degraded = true
+		}
+		report.Summarized += cutoff - start
+		start = cutoff
+	}
+	report.After = EstimateTokens(m.Build(s, system))
+	if start >= len(s.Messages) {
+		report.Reason = ReasonCompacted
+	} else {
+		report.Reason = ReasonPartial
+	}
+	return report, nil
 }
 
 func (m *Manager) target() int {
 	return int(float64(m.InputBudget()) * m.ratio)
 }
 
-func (m *Manager) cutoff(s *session.Session) int {
+// cursor clamps the summary cursor to the current message list.
+func (m *Manager) cursor(s *session.Session) int {
 	start := s.SummaryUpTo
 	if start < 0 {
-		start = 0
+		return 0
 	}
+	if start > len(s.Messages) {
+		return len(s.Messages)
+	}
+	return start
+}
+
+// autoCutoff keeps the most recent keepRecent messages and moves the cut to
+// the next user message, so an assistant tool_call and its tool result are
+// never split across the summary boundary.
+func (m *Manager) autoCutoff(s *session.Session) int {
+	start := m.cursor(s)
 	if len(s.Messages)-start <= m.keepRecent {
 		return start
 	}
@@ -129,21 +264,63 @@ func (m *Manager) cutoff(s *session.Session) int {
 	return cut
 }
 
-func (m *Manager) compactOnce(ctx context.Context, s *session.Session, cutoff int) error {
-	start := s.SummaryUpTo
-	if start < 0 {
-		start = 0
+// manualCutoff returns the largest safe cutoff whose rendered transcript fits
+// maxChars. Safe means the next message is a user message (or the list ends),
+// so a tool result never loses its assistant tool_call. If a single turn is
+// larger than the limit, it is returned as one chunk and compactOnce truncates
+// the transcript instead of skipping the turn.
+func (m *Manager) manualCutoff(s *session.Session, start, maxChars int) int {
+	used := 0
+	cutoff := -1
+	for i := start; i < len(s.Messages); i++ {
+		used += messageChars(s.Messages[i])
+		if used > maxChars {
+			break
+		}
+		if i+1 == len(s.Messages) || s.Messages[i+1].Role == llm.RoleUser {
+			cutoff = i + 1
+		}
 	}
+	if cutoff > start {
+		return cutoff
+	}
+	for i := start + 1; i <= len(s.Messages); i++ {
+		if i == len(s.Messages) || s.Messages[i].Role == llm.RoleUser {
+			return i
+		}
+	}
+	return len(s.Messages)
+}
+
+// transcriptLimit bounds the summarizer input. The 3/2 factor is a rough
+// chars-per-token compromise between ASCII and CJK text.
+func (m *Manager) transcriptLimit() int {
+	maxChars := m.InputBudget() * 3 / 2
+	if maxChars < 4000 {
+		maxChars = 4000
+	}
+	return maxChars
+}
+
+type compactMode int
+
+const (
+	compactLenient compactMode = iota
+	compactStrict
+)
+
+// compactOnce summarizes messages[SummaryUpTo:cutoff] together with the old
+// summary. In lenient mode a summarizer failure falls back to the old summary
+// and still advances the cursor. In strict mode a failure leaves the session
+// untouched so the caller can report it and let the user retry.
+func (m *Manager) compactOnce(ctx context.Context, s *session.Session, cutoff int, mode compactMode) (degraded bool, err error) {
+	start := m.cursor(s)
 	if start > cutoff {
 		start = cutoff
 	}
 	oldSummary := strings.TrimSpace(s.Summary)
 	transcript := renderTranscript(s.Messages[start:cutoff])
-	maxChars := m.InputBudget() * 3 / 2
-	if maxChars < 4000 {
-		maxChars = 4000
-	}
-	transcript = session.TruncateRunes(transcript, maxChars)
+	transcript = session.TruncateRunes(transcript, m.transcriptLimit())
 
 	user := "已有摘要：\n" + emptyAs(oldSummary, "（无）") + "\n\n需要压缩的对话：\n" + transcript
 	messages := []llm.Message{
@@ -157,13 +334,31 @@ func (m *Manager) compactOnce(ctx context.Context, s *session.Session, cutoff in
 		MaxTokens:   m.summaryMax,
 	})
 	if err != nil || strings.TrimSpace(resp.Content) == "" {
+		if mode == compactStrict {
+			if err != nil {
+				return false, err
+			}
+			return false, errors.New("摘要返回为空")
+		}
 		s.Summary = fallbackSummary(oldSummary)
 		s.SummaryUpTo = cutoff
-		return nil
+		return true, nil
 	}
 	s.Summary = session.TruncateRunes(strings.TrimSpace(resp.Content), m.summaryMax*3)
 	s.SummaryUpTo = cutoff
-	return nil
+	return false, nil
+}
+
+// messageChars counts the same runes renderTranscript writes for one message.
+func messageChars(msg session.Message) int {
+	n := 4 + utf8.RuneCountInString(msg.Role) + utf8.RuneCountInString(msg.Content)
+	if msg.ToolCallID != "" {
+		n += 1 + utf8.RuneCountInString(msg.ToolCallID)
+	}
+	for _, call := range msg.ToolCalls {
+		n += 15 + utf8.RuneCountInString(call.Function.Name) + utf8.RuneCountInString(call.Function.Arguments)
+	}
+	return n
 }
 
 func toLLMMessage(msg session.Message) llm.Message {

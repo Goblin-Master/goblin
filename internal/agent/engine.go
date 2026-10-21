@@ -147,16 +147,23 @@ func (e *Engine) Run(ctx context.Context, sessionID, input string) (Reply, error
 	system := buildSystemPrompt(now)
 	emptyRetries := 0
 	for step := 1; step <= e.maxSteps; step++ {
-		before := memory.EstimateTokens(e.memory.Build(sess, system))
-		compacted, compactErr := e.memory.MaybeCompact(ctx, sess, system)
+		report, compactErr := e.memory.AutoCompact(ctx, sess, system)
 		if compactErr != nil {
 			return finish(reply, fmt.Errorf("压缩上下文失败: %w", compactErr))
 		}
-		if compacted {
-			after := memory.EstimateTokens(e.memory.Build(sess, system))
+		switch {
+		case report.Summarized > 0:
 			log.Info("context.compact",
-				"step", step, "tokens_before", before, "tokens_after", after,
+				"step", step,
+				"tokens_before", report.Before, "tokens_after", report.After,
+				"summarized", report.Summarized, "calls", report.Calls,
+				"reason", report.Reason.String(), "degraded", report.Degraded,
 				"summary_up_to", sess.SummaryUpTo)
+		case report.Reason != memory.ReasonUnderBudget:
+			log.Warn("context.compact_skip",
+				"step", step,
+				"tokens_before", report.Before, "target", e.memory.TargetTokens(),
+				"reason", report.Reason.String())
 		}
 
 		req := llm.ChatRequest{
@@ -255,29 +262,30 @@ func (e *Engine) Run(ctx context.Context, sessionID, input string) (Reply, error
 	return finish(reply, fmt.Errorf("达到最大轮次 %d", e.maxSteps))
 }
 
-// Compact forces the same compaction policy used by Run.
-func (e *Engine) Compact(ctx context.Context, sessionID string) (bool, error) {
+// Compact folds the session history into the summary regardless of the token
+// budget. Progress from earlier chunks is saved even when a later chunk fails.
+func (e *Engine) Compact(ctx context.Context, sessionID string) (memory.Report, error) {
 	id, err := session.ParseID(sessionID)
 	if err != nil {
-		return false, err
+		return memory.Report{Reason: memory.ReasonUnknown}, err
 	}
 	lock := e.lockFor(id)
 	lock.Lock()
 	defer lock.Unlock()
 	sess, err := e.store.Load(id)
 	if err != nil {
-		return false, err
+		return memory.Report{Reason: memory.ReasonUnknown}, err
 	}
-	compacted, err := e.memory.MaybeCompact(ctx, sess, buildSystemPrompt(time.Now()))
-	if err != nil {
-		return false, err
-	}
-	if compacted {
-		if err := e.store.Save(sess); err != nil {
-			return false, err
+	report, compactErr := e.memory.Compact(ctx, sess, buildSystemPrompt(time.Now()))
+	if report.Summarized > 0 {
+		if saveErr := e.store.Save(sess); saveErr != nil {
+			if compactErr != nil {
+				return report, fmt.Errorf("%w；保存已压缩进度失败: %v", compactErr, saveErr)
+			}
+			return report, fmt.Errorf("保存会话失败: %w", saveErr)
 		}
 	}
-	return compacted, nil
+	return report, compactErr
 }
 
 func (e *Engine) lockFor(id string) *sync.Mutex {

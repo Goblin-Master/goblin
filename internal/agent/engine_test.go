@@ -354,3 +354,134 @@ func TestRunEmptyInput(t *testing.T) {
 		t.Fatal("expected empty input error")
 	}
 }
+
+func withMemory(t *testing.T, engine *Engine, maxContext int) {
+	t.Helper()
+	m, err := memory.New(memory.Options{
+		Client: engine.client, Model: "deepseek-chat",
+		MaxContextTokens: maxContext, ReserveOutputTokens: 20,
+		KeepRecent: 4, SummaryMaxTokens: 100, CompactRatio: 0.75,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine.memory = m
+}
+
+func TestCompactFoldsHistory(t *testing.T) {
+	engine, store, _, _, sid := newTestEngine(t, []llm.ChatResponse{{Content: "summarized"}})
+	sess, _ := store.Load(sid)
+	sess.Messages = []session.Message{
+		{Role: llm.RoleUser, Content: "one"},
+		{Role: llm.RoleAssistant, Content: "first"},
+		{Role: llm.RoleUser, Content: "two"},
+		{Role: llm.RoleAssistant, Content: "second"},
+	}
+	saves := store.saves
+	report, err := engine.Compact(context.Background(), sid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Reason != memory.ReasonCompacted || report.Summarized != 4 || report.Calls != 1 {
+		t.Fatalf("report = %+v", report)
+	}
+	if sess.SummaryUpTo != 4 || sess.Summary == "" {
+		t.Fatalf("summary=%q up_to=%d", sess.Summary, sess.SummaryUpTo)
+	}
+	if store.saves != saves+1 {
+		t.Fatalf("saves = %d, want %d", store.saves, saves+1)
+	}
+}
+
+func TestCompactNothingToCompact(t *testing.T) {
+	engine, store, client, _, sid := newTestEngine(t, nil)
+	sess, _ := store.Load(sid)
+	sess.Summary = "old"
+	sess.SummaryUpTo = 2
+	sess.Messages = []session.Message{
+		{Role: llm.RoleUser, Content: "one"},
+		{Role: llm.RoleAssistant, Content: "first"},
+	}
+	saves := store.saves
+	report, err := engine.Compact(context.Background(), sid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Reason != memory.ReasonNothingToCompact || len(client.reqs) != 0 {
+		t.Fatalf("report=%+v requests=%d", report, len(client.reqs))
+	}
+	if store.saves != saves {
+		t.Fatalf("nothing to compact must not save")
+	}
+}
+
+func TestCompactSavesProgressWhenChunkFails(t *testing.T) {
+	engine, store, _, _, sid := newTestEngine(t, []llm.ChatResponse{{Content: "ok"}})
+	withMemory(t, engine, 220)
+	sess, _ := store.Load(sid)
+	for i := 0; i < 6; i++ {
+		sess.Messages = append(sess.Messages,
+			session.Message{Role: llm.RoleUser, Content: strings.Repeat("u", 1000)},
+			session.Message{Role: llm.RoleAssistant, Content: strings.Repeat("a", 1000)},
+		)
+	}
+	saves := store.saves
+	report, err := engine.Compact(context.Background(), sid)
+	if err == nil {
+		t.Fatal("expected summarizer failure")
+	}
+	if report.Reason != memory.ReasonSummaryFailed || report.Summarized != 2 {
+		t.Fatalf("report = %+v", report)
+	}
+	if store.saves != saves+1 {
+		t.Fatalf("progress must be saved: saves=%d", store.saves)
+	}
+	if sess.SummaryUpTo != 2 {
+		t.Fatalf("up_to = %d", sess.SummaryUpTo)
+	}
+}
+
+func TestRunAutoCompactLogsReason(t *testing.T) {
+	engine, store, _, logBuf, sid := newTestEngine(t, []llm.ChatResponse{
+		{Content: "compressed"}, {Content: "done"},
+	})
+	withMemory(t, engine, 220)
+	sess, _ := store.Load(sid)
+	for i := 0; i < 3; i++ {
+		sess.Messages = append(sess.Messages,
+			session.Message{Role: llm.RoleUser, Content: strings.Repeat("u", 300)},
+			session.Message{Role: llm.RoleAssistant, Content: strings.Repeat("a", 300)},
+		)
+	}
+	reply, err := engine.Run(context.Background(), sid, "next")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reply.Text != "done" {
+		t.Fatalf("reply = %+v", reply)
+	}
+	logText := logBuf.String()
+	if !strings.Contains(logText, `"context.compact"`) || !strings.Contains(logText, `"still_exceeded"`) {
+		t.Fatalf("log = %s", logText)
+	}
+	if !strings.Contains(logText, `"summarized"`) || !strings.Contains(logText, `"degraded"`) {
+		t.Fatalf("log = %s", logText)
+	}
+}
+
+func TestRunAutoCompactSkipWarn(t *testing.T) {
+	engine, store, _, logBuf, sid := newTestEngine(t, []llm.ChatResponse{{Content: "done"}})
+	withMemory(t, engine, 220)
+	sess, _ := store.Load(sid)
+	sess.Messages = []session.Message{
+		{Role: llm.RoleAssistant, Content: strings.Repeat("a", 300)},
+		{Role: llm.RoleAssistant, Content: strings.Repeat("b", 300)},
+	}
+	if _, err := engine.Run(context.Background(), sid, "next"); err != nil {
+		t.Fatal(err)
+	}
+	logText := logBuf.String()
+	if !strings.Contains(logText, `"context.compact_skip"`) || !strings.Contains(logText, `"no_boundary"`) {
+		t.Fatalf("log = %s", logText)
+	}
+}
